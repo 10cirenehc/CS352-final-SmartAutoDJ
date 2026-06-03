@@ -1,3 +1,15 @@
+# SmartAutoDJ: large/copyrighted audio inputs and generated outputs
+data/
+outputs/
+outputs_*/
+# allin1 byproducts (demixed stems / specs) if it ever writes to its default dirs
+demix/
+spec/
+# (small committed AI clips live under assets/generated/ and are NOT ignored)
+
+# Local Claude Code state (lock files, local plans/settings)
+.claude/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
