@@ -18,7 +18,7 @@ import librosa.display
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .transition import fade_curves
+from .transition import bass_swap_curves, fade_curves
 from .types import AnalysisResult, TransitionPlan
 
 
@@ -69,10 +69,13 @@ def plot_fade_curves(plan: TransitionPlan, sr: int, out_path: str, n: int = 1000
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(x, fade_out, label="A fade-out", color="#3a6ea5")
     ax.plot(x, fade_in, label="B fade-in", color="#d1495b")
-    if (plan.eq_params or {}).get("kind") == "bass_swap":
-        t = np.linspace(0, 1, n)
-        ax.plot(x, np.clip(1 - 2 * t, 0, 1), "--", color="#3a6ea5", lw=0.8, label="A bass")
-        ax.plot(x, np.clip(2 * t - 1, 0, 1), "--", color="#d1495b", lw=0.8, label="B bass")
+    eq = plan.eq_params or {}
+    if eq.get("kind") == "bass_swap":
+        bass_out, bass_in = bass_swap_curves(
+            n, float(eq.get("swap_center", 0.5)), float(eq.get("swap_width", 0.2))
+        )
+        ax.plot(x, bass_out, "--", color="#3a6ea5", lw=0.8, label="A bass")
+        ax.plot(x, bass_in, "--", color="#d1495b", lw=0.8, label="B bass")
     ax.set_xlabel("time (s)")
     ax.set_ylabel("gain")
     ax.set_title(f"Transition fades ({plan.fade_shape})")
@@ -95,6 +98,52 @@ def plot_transition_region(y_out: np.ndarray, info: dict, sr: int, out_path: str
     return _save(fig, out_path)
 
 
+def plot_structure_cue(
+    a: AnalysisResult, b: AnalysisResult, plan: TransitionPlan, out_path: str
+) -> str:
+    """Energy + novelty curves for A and B with the chosen cue points marked.
+
+    Shows *why* the transition points were picked: A exits from a sustained part;
+    B drops in where energy is high (past the intro). Energy = loudness envelope,
+    novelty = where the music structurally changes (Self-Similarity topic)."""
+    fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=False)
+    panels = (
+        (axes[0], a, plan.region_a[0], "Song A (outgoing) — exit point", "#3a6ea5"),
+        (axes[1], b, plan.region_b[0], "Song B (incoming) — drop-in point", "#d1495b"),
+    )
+    # B's cue is shown in the post-stretch timeline (region_b is already scaled);
+    # B's curves live in the original timeline, so scale their time axis to match.
+    for ax, res, cue, title, color in panels:
+        hop = getattr(res, "rms_hop_sec", 0.0)
+        rms = getattr(res, "rms", np.array([]))
+        nov = getattr(res, "novelty", np.array([]))
+        scale = 1.0
+        if res is b and abs(plan.stretch_ratio - 1.0) >= 1e-3:
+            scale = 1.0 / plan.stretch_ratio
+        if rms.size and hop > 0:
+            t = np.arange(rms.size) * hop * scale
+            ax.plot(t, rms, color=color, lw=1.0, label="energy (RMS)")
+        if nov.size and hop > 0:
+            t = np.arange(nov.size) * hop * scale
+            ax.plot(t, nov, color="0.5", lw=0.8, label="novelty")
+        ax.axvline(cue, color="#06d6a0", lw=2.0, label="chosen cue")
+        for db in res.downbeats * scale:
+            ax.axvline(db, color="0.85", lw=0.3, zorder=0)
+        key = getattr(res, "key", {}) or {}
+        ax.set_title(f"{title}   [key: {key.get('name', '?')}]")
+        ax.set_ylabel("0..1")
+        ax.legend(loc="upper right", fontsize=8)
+    axes[-1].set_xlabel("time (s)")
+    sel = getattr(plan, "selection", {}) or {}
+    if sel.get("style"):
+        fig.suptitle(
+            f"style: {sel['style']}  (genre A={sel.get('genre_a', '?')}, "
+            f"B={sel.get('genre_b', '?')})",
+            fontsize=10,
+        )
+    return _save(fig, out_path)
+
+
 def render_all(
     y_a, y_b, y_out, a, b, plan, info, sr, out_dir, stem: str
 ) -> list[str]:
@@ -107,6 +156,9 @@ def render_all(
         plot_transition_region(y_out, info, sr, p("region")),
         plot_spectrogram(y_out, sr, p("spectrogram"), title=f"{stem} output"),
     ]
+    # Cue-point rationale plot (skip for tier-1 baseline, which ignores structure).
+    if plan.tier >= 2:
+        paths.append(plot_structure_cue(a, b, plan, p("structure")))
     return paths
 
 

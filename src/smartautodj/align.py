@@ -15,9 +15,12 @@ Course topics: Beat/Downbeat tracking, Self-Similarity (section-aware anchor).
 
 from __future__ import annotations
 
+import warnings
+
 import librosa
 import numpy as np
 
+from . import structure as structure_mod
 from .types import AnalysisResult, TransitionPlan
 
 METER = 4  # assume 4/4 throughout (matches the librosa downbeat derivation)
@@ -58,22 +61,52 @@ def _refine_stretch(a: AnalysisResult, b: AnalysisResult, tol: float) -> float:
 
 
 def _beat_period(beats: np.ndarray) -> float:
-    """Least-squares beat period: the slope of beat-index -> time.
+    """Robust beat period: median of *inlier* inter-beat intervals.
 
-    Fitting all beats (vs taking a median of consecutive differences) minimizes
-    accumulated phase drift across the overlap when the tracker's beats are
-    slightly jittery.
+    A least-squares slope of beat-index -> time looks appealing for jitter, but
+    it is catastrophically wrong when the tracker **misses beats** (common on
+    real music): a dropped beat leaves a ~2x gap, the index no longer matches
+    ``k * period``, and the slope inflates — which once inverted our stretch
+    direction on real songs. Instead we take the median IBI (robust to the
+    occasional 2x/0.5x outlier from a missed/extra beat), then average only the
+    intervals within [0.5x, 1.5x] of it to also smooth out small jitter.
     """
-    idx = np.arange(beats.size, dtype=float)
-    slope, _ = np.polyfit(idx, np.asarray(beats, dtype=float), 1)
-    return float(slope)
+    beats = np.asarray(beats, dtype=float)
+    diffs = np.diff(beats)
+    diffs = diffs[diffs > 0]
+    if diffs.size == 0:
+        return 0.0
+    med = float(np.median(diffs))
+    inliers = diffs[(diffs >= 0.5 * med) & (diffs <= 1.5 * med)]
+    return float(np.mean(inliers)) if inliers.size else med
 
 
-def apply_stretch(y: np.ndarray, rate: float) -> np.ndarray:
-    """Time-stretch ``y`` by ``rate`` (no-op when rate ~= 1)."""
+def apply_stretch(y: np.ndarray, rate: float, sr: int = 44100) -> np.ndarray:
+    """Time-stretch ``y`` by ``rate`` (no-op when rate ~= 1).
+
+    Prefers **RubberBand** (via ``pyrubberband``) — it is transient-aware and
+    DJ-grade, avoiding the "phasiness"/transient-smearing that librosa's phase
+    vocoder produces (librosa's own docs recommend RubberBand for quality).
+    Falls back to librosa's phase vocoder if the ``rubberband`` CLI / wrapper is
+    unavailable, so the pipeline still runs everywhere.
+
+    ``pyrubberband.time_stretch(y, sr, rate)`` makes the output ``rate`` times
+    *faster* (duration / rate), matching librosa's ``time_stretch`` convention.
+    """
+    y = np.asarray(y, dtype=np.float32)
     if abs(rate - 1.0) < 1e-3:
-        return np.asarray(y, dtype=np.float32)
-    return librosa.effects.time_stretch(np.asarray(y, dtype=np.float32), rate=rate)
+        return y
+    try:
+        import pyrubberband as pyrb
+
+        out = pyrb.time_stretch(y, sr, rate)
+        return np.asarray(out, dtype=np.float32)
+    except Exception as exc:  # rubberband binary or wrapper missing
+        warnings.warn(
+            f"pyrubberband unavailable ({exc}); falling back to librosa phase "
+            "vocoder (lower quality). Install rubberband: `brew install rubberband`."
+        )
+        return librosa.effects.time_stretch(y, rate=rate)
 
 
 def scale_times(times: np.ndarray, rate: float) -> np.ndarray:
@@ -89,8 +122,22 @@ def select_transition_region(
     bars: int = 8,
     tempo_tol: float = 0.10,
     tier: int = 2,
+    cue_method: str = "energy",
+    phrase_bars: int = 4,
+    y_a: np.ndarray | None = None,
+    y_b: np.ndarray | None = None,
+    sr: int | None = None,
+    cue_a: float | None = None,
+    cue_b: float | None = None,
+    fade_sharpness: float = 1.0,
 ) -> TransitionPlan:
-    """Plan a beat-aligned transition from A into B.
+    """Plan a structure-aware, beat-aligned transition from A into B.
+
+    The incoming point in B is chosen so we drop into a *high-energy* section
+    (not B's quiet intro): ``cue_method="energy"`` takes the first phrase
+    downbeat whose section has full energy (Phase 1); ``cue_method="novelty"``
+    ranks phrase downbeats by fused novelty + energy + harmonic compatibility
+    with A (Phase 2). See :mod:`smartautodj.structure`.
 
     Returns a :class:`TransitionPlan`. ``stretch_ratio`` is the rate the caller
     should apply to B's audio (via :func:`apply_stretch`) before mixing; the
@@ -109,8 +156,36 @@ def select_transition_region(
     # Don't ask for more overlap than either track can supply.
     overlap = float(min(overlap, 0.9 * a.duration, 0.9 * b_duration))
 
-    start_a = _choose_outgoing_downbeat(a, overlap)
-    start_b = _choose_incoming_downbeat(b_downbeats)
+    if cue_method == "match" and y_a is not None and y_b is not None and sr:
+        # Jointly pick A-exit + B-entry by beat-window cross-similarity + energy.
+        start_a, start_b_orig, sel_b = structure_mod.choose_transition_pair(
+            a, b, y_a, y_b, sr, overlap, phrase_bars=phrase_bars
+        )
+    else:
+        start_a = _choose_outgoing_downbeat(a, overlap)
+        # Choose B's switch point in B's ORIGINAL timeline (where its energy/novelty
+        # features live), then map it into the post-stretch timeline.
+        start_b_orig, sel_b = _choose_incoming_switch(a, b, overlap, cue_method, phrase_bars)
+    # Manual cue override (seconds into each track) — snapped to the nearest
+    # downbeat so it stays beat-aligned. Lets a user place the transition exactly
+    # (e.g. on the chorus) when auto-detection can't find it.
+    if cue_a is not None:
+        start_a = _snap_downbeat(a.downbeats, cue_a, a.duration - overlap)
+        sel_b = {**(sel_b or {}), "manual_cue_a": round(float(cue_a), 2)}
+    if cue_b is not None:
+        start_b_orig = _snap_downbeat(b.downbeats, cue_b, b.duration - overlap)
+        sel_b = {**(sel_b or {}), "manual_cue_b": round(float(cue_b), 2)}
+    start_b = float(scale_times(np.array([start_b_orig]), rate)[0])
+    selection = {
+        "cue_method": cue_method,
+        "phrase_bars": phrase_bars,
+        "incoming": sel_b,
+        "key_a": getattr(a, "key", {}),
+        "key_b": getattr(b, "key", {}),
+        "harmonic_compatibility": round(
+            structure_mod.key_compatibility(getattr(a, "key", {}), getattr(b, "key", {})), 3
+        ),
+    }
 
     region_a = (start_a, min(start_a + overlap, a.duration))
     region_b = (start_b, min(start_b + overlap, b_duration))
@@ -135,8 +210,10 @@ def select_transition_region(
         anchor_downbeats_b=anchors_b,
         stretch_ratio=rate,
         fade_shape="equal_power",
+        fade_sharpness=fade_sharpness,
         eq_params={"kind": "bass_swap", "cutoff_hz": 200.0, "order": 4},
         bridge=None,
+        selection=selection,
     )
 
 
@@ -179,6 +256,15 @@ def matched_beats_in_overlap(
 # --------------------------------------------------------------------------- #
 # Anchor selection helpers
 # --------------------------------------------------------------------------- #
+def _snap_downbeat(downbeats: np.ndarray, t: float, t_max: float) -> float:
+    """Nearest downbeat to ``t`` that still leaves room (<= ``t_max``)."""
+    db = np.asarray(downbeats, dtype=float)
+    db = db[db <= max(t_max, 0.0) + 1e-6]
+    if db.size == 0:
+        return float(max(0.0, t_max))
+    return float(db[int(np.argmin(np.abs(db - t)))])
+
+
 def _choose_outgoing_downbeat(a: AnalysisResult, overlap: float) -> float:
     """Latest A downbeat that leaves ``overlap`` seconds before the end.
 
@@ -189,6 +275,21 @@ def _choose_outgoing_downbeat(a: AnalysisResult, overlap: float) -> float:
     feasible = db[db <= a.duration - overlap + 1e-6]
     if feasible.size == 0:
         return float(max(0.0, a.duration - overlap))
+
+    # Prefer exiting from a *sustained-energy* part of A (avoid mixing out during
+    # a breakdown/quiet tail). Keep candidates whose next bar is at least half of
+    # A's peak energy; if that empties the set, fall back to all feasible.
+    rms = getattr(a, "rms", np.array([]))
+    hop_sec = getattr(a, "rms_hop_sec", 0.0)
+    if rms.size and hop_sec > 0:
+        bar = METER * 60.0 / max(a.bpm, 1.0)
+        peak = float(np.percentile(rms, 95))
+        energetic = np.array(
+            [t for t in feasible
+             if structure_mod.windowed_energy(rms, hop_sec, t, t + bar) >= 0.5 * peak]
+        )
+        if energetic.size:
+            feasible = energetic
 
     boundaries = _section_boundaries(a)
     if boundaries.size:
@@ -201,12 +302,31 @@ def _choose_outgoing_downbeat(a: AnalysisResult, overlap: float) -> float:
     return float(feasible.max())
 
 
-def _choose_incoming_downbeat(b_downbeats: np.ndarray) -> float:
-    """First downbeat of B (skip a leading downbeat at t=0 if a later one exists)."""
-    if b_downbeats.size == 0:
-        return 0.0
-    nonzero = b_downbeats[b_downbeats > 1e-3]
-    return float(nonzero[0]) if nonzero.size else float(b_downbeats[0])
+def _choose_incoming_switch(
+    a: AnalysisResult,
+    b: AnalysisResult,
+    overlap: float,
+    cue_method: str,
+    phrase_bars: int,
+) -> tuple[float, dict]:
+    """Structure-aware incoming switch point (B's ORIGINAL timeline).
+
+    Delegates to :mod:`structure`: energy-threshold (Phase 1) or novelty-ranked
+    (Phase 2). Both skip B's quiet intro and land on a full-energy phrase.
+    """
+    if cue_method == "novelty":
+        cands = structure_mod.find_switch_points(
+            b, overlap, role="incoming", phrase_bars=phrase_bars,
+            other_key=getattr(a, "key", {}),
+        )
+        if cands:
+            top = cands[0]
+            return float(top["time"]), {"reason": "top_novelty", "ranked": cands}
+        # fall through to energy if novelty produced nothing
+    t, info = structure_mod.choose_incoming_switch(
+        b, overlap, phrase_bars=phrase_bars
+    )
+    return t, info
 
 
 def _section_boundaries(a: AnalysisResult) -> np.ndarray:

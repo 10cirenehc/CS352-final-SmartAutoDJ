@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SmartAutoDJ — Structure-Aware Automatic DJ Transitions</title>
+  <meta name="description" content="A Music Perception course project: structure-aware automatic DJ transitions, evaluated across three tiers — baseline crossfade, beat-aligned, and AI-enhanced." />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="#top">SmartAutoDJ</a>
+    <div class="navlinks">
+      <a href="#gallery">Demos</a>
+      <a href="#topics">Course topics</a>
+      <a href="#survey">Survey</a>
+      <a href="#live">Live</a>
+      <a href="https://github.com/10cirenehc/CS352-final-SmartAutoDJ" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+
+  <header id="top" class="hero">
+    <h1>SmartAutoDJ</h1>
+    <p class="tagline">Structure-aware automatic DJ transitions.</p>
+    <p class="lede">
+      Given two songs, SmartAutoDJ analyzes tempo, beats, downbeats, and song structure,
+      then builds a short transition that is musically smarter than a plain crossfade —
+      optionally layering in an AI-generated bridge. Everything below is benchmarked across
+      <strong>three tiers</strong> so you can hear what each piece buys us.
+    </p>
+    <ul class="tiers-legend">
+      <li class="tier1"><span class="dot"></span> Tier 1 — Baseline crossfade</li>
+      <li class="tier2"><span class="dot"></span> Tier 2 — Beat-aligned</li>
+      <li class="tier3"><span class="dot"></span> Tier 3 — AI-enhanced bridge</li>
+    </ul>
+  </header>
+
+  <main>
+    <section id="gallery">
+      <h2>Demos</h2>
+      <p class="section-intro">
+        Each card plays the same song pair transitioned three ways. Audio is trimmed to a
+        window around the transition so you hear the handoff immediately. Metrics and plots
+        are pulled straight from the pipeline's output sidecars.
+      </p>
+      <div id="gallery-cards" class="cards">
+        <p class="loading">Loading demos…</p>
+      </div>
+    </section>
+
+    <section id="topics">
+      <h2>Course topics, where they show up</h2>
+      <p class="section-intro">
+        SmartAutoDJ is a Music Perception final project. Each module demonstrates a course concept:
+      </p>
+      <table class="topic-table">
+        <thead>
+          <tr><th>Course topic</th><th>Where it shows up here</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Loudness &amp; Amplitude</td>
+            <td>Loudness-continuity metric (max dB jump across the transition) and the volume-fade curves in each <em>fades</em> plot.</td>
+          </tr>
+          <tr>
+            <td>Fourier Transforms &amp; Spectrograms</td>
+            <td>The per-tier <em>spectrogram</em> images of each rendered transition.</td>
+          </tr>
+          <tr>
+            <td>Convolution &amp; Filtering (EQ)</td>
+            <td>Equal-power bass-swap EQ in the beat-aligned tiers — visible as the EQ curves in the <em>fades</em> plot.</td>
+          </tr>
+          <tr>
+            <td>Self-Similarity &amp; Structure</td>
+            <td>Fused RMS/MFCC/chroma/onset novelty drives cue-point selection — see the <em>structure</em> plot (tiers 2 &amp; 3).</td>
+          </tr>
+          <tr>
+            <td>MFCCs &amp; Chromagrams / Pitch</td>
+            <td>Krumhansl key estimation and harmonic compatibility — the key labels shown on each demo card.</td>
+          </tr>
+          <tr>
+            <td>Deep Learning &amp; Embeddings</td>
+            <td>Neural beat tracking (beat_this) and the tier-3 AI bridge generated with MusicGen — its text prompt is shown on the tier-3 block.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="survey">
+      <h2>Listening survey</h2>
+      <p class="section-intro">
+        Help us evaluate the transitions: rate each tier on smoothness, rhythmic alignment,
+        creativity, and overall preference. Responses feed the project's subjective evaluation.
+      </p>
+      <div id="survey-embed">
+        <p class="loading">Loading survey…</p>
+      </div>
+    </section>
+
+    <section id="live">
+      <h2>Live generation <span class="badge soon">coming soon</span></h2>
+      <p class="section-intro">
+        Generation currently happens offline (Colab / MusicGen) and the clips are baked into
+        the demos above. A future <a href="https://huggingface.co/spaces" target="_blank" rel="noopener">Hugging Face Space</a>
+        could host an always-on Gradio app to generate transitions live in the browser. When
+        that exists, it embeds right here:
+      </p>
+      <!-- Drop-in hook: uncomment and set the Space URL to enable live generation.
+      <iframe src="https://YOUR-USERNAME-smartautodj.hf.space" width="100%" height="700"
+              title="SmartAutoDJ live generation"></iframe>
+      -->
+      <button class="btn" disabled>Try live generation (coming soon)</button>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footcol">
+      <h3>Team</h3>
+      <ul>
+        <li>Eric Shang Nan Chen (ESC4970)</li>
+        <li>Yindi Zhao (YZV5448)</li>
+        <li>Kefan Yu</li>
+      </ul>
+    </div>
+    <div class="footcol">
+      <h3>Selected references</h3>
+      <ul>
+        <li><a href="https://arxiv.org/abs/2110.06525" target="_blank" rel="noopener">Automatic DJ Transitions with Differentiable Audio Effects &amp; GANs (2021)</a></li>
+        <li><a href="https://doi.org/10.48550/ARXIV.2306.05284" target="_blank" rel="noopener">MusicGen: Simple and Controllable Music Generation (2023)</a></li>
+        <li><a href="https://doi.org/10.1162/comj_a_00652" target="_blank" rel="noopener">Automatic Detection of Cue Points for DJ Mixing (2022)</a></li>
+      </ul>
+    </div>
+    <div class="footcol">
+      <h3>Built with</h3>
+      <ul>
+        <li><a href="https://librosa.org/" target="_blank" rel="noopener">librosa</a> · <a href="https://github.com/CPJKU/beat_this" target="_blank" rel="noopener">beat_this</a></li>
+        <li><a href="https://github.com/facebookresearch/audiocraft" target="_blank" rel="noopener">AudioCraft / MusicGen</a></li>
+        <li><a href="https://github.com/10cirenehc/CS352-final-SmartAutoDJ" target="_blank" rel="noopener">Source on GitHub</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

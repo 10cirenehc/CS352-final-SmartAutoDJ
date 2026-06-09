@@ -1,0 +1,75 @@
+{
+  "generated_at": null,
+  "survey_url": "",
+  "pairs": [
+    {
+      "id": "song_A__song_B",
+      "title_a": "Song A",
+      "title_b": "Song B",
+      "bpm_a": 139.9,
+      "bpm_b": 129.0,
+      "key_a": "D# major",
+      "key_b": "G major",
+      "tiers": {
+        "1": {
+          "label": "Baseline crossfade",
+          "audio": "assets/audio/song_A__song_B__tier1.mp3",
+          "window_sec": {
+            "start": 145.067,
+            "dur": 27.724
+          },
+          "plots": {
+            "spectrogram": "assets/plots/song_A__song_B__tier1_spectrogram.png",
+            "fades": "assets/plots/song_A__song_B__tier1_fades.png"
+          },
+          "metrics": {
+            "beat_align_err_sec": 0.5719,
+            "bpm_gap_before": 10.93,
+            "bpm_gap_after": 10.93,
+            "max_db_jump": 1.7
+          }
+        },
+        "2": {
+          "label": "Beat-aligned",
+          "audio": "assets/audio/song_A__song_B__tier2.mp3",
+          "window_sec": {
+            "start": 141.34,
+            "dur": 27.724
+          },
+          "plots": {
+            "spectrogram": "assets/plots/song_A__song_B__tier2_spectrogram.png",
+            "structure": "assets/plots/song_A__song_B__tier2_structure.png",
+            "fades": "assets/plots/song_A__song_B__tier2_fades.png"
+          },
+          "metrics": {
+            "beat_align_err_sec": 0.0315,
+            "bpm_gap_before": 10.93,
+            "bpm_gap_after": 0.0,
+            "max_db_jump": 3.73
+          }
+        },
+        "3": {
+          "label": "AI-enhanced (bridge)",
+          "audio": "assets/audio/song_A__song_B__tier3.mp3",
+          "window_sec": {
+            "start": 141.34,
+            "dur": 27.724
+          },
+          "plots": {
+            "spectrogram": "assets/plots/song_A__song_B__tier3_spectrogram.png",
+            "structure": "assets/plots/song_A__song_B__tier3_structure.png",
+            "fades": "assets/plots/song_A__song_B__tier3_fades.png"
+          },
+          "metrics": {
+            "beat_align_err_sec": 0.0315,
+            "bpm_gap_before": 10.93,
+            "bpm_gap_after": 0.0,
+            "max_db_jump": 3.74
+          },
+          "bridge_prompt": "134 BPM electronic transition riser in G major, smoothly building energy into a drop, atmospheric sweep and white-noise rise, no lead melody, about 14 seconds",
+          "bridge_source": "procedural-placeholder"
+        }
+      }
+    }
+  ]
+}

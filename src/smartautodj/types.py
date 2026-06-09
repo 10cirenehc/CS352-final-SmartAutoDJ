@@ -25,6 +25,17 @@ def _arr(x) -> np.ndarray:
     return np.asarray(x, dtype=float).reshape(-1)
 
 
+def _downsample(x: np.ndarray, n: int) -> list:
+    """Resample a frame-level curve to ~``n`` points for a compact sidecar."""
+    x = np.asarray(x, dtype=float).reshape(-1)
+    if x.size == 0:
+        return []
+    if x.size <= n:
+        return [round(float(v), 4) for v in x]
+    idx = np.linspace(0, x.size - 1, n).astype(int)
+    return [round(float(v), 4) for v in x[idx]]
+
+
 @dataclass
 class AnalysisResult:
     """Musical analysis of a single track.
@@ -60,10 +71,18 @@ class AnalysisResult:
     downbeats: np.ndarray
     sections: list = field(default_factory=list)
     backend: str = "librosa"
+    # Frequency-domain structure features (from ``structure.analyze_structure``).
+    rms: np.ndarray = field(default_factory=lambda: np.array([]))  # 0..1 energy env
+    rms_hop_sec: float = 0.0  # seconds per rms/novelty frame
+    novelty: np.ndarray = field(default_factory=lambda: np.array([]))  # 0..1 change curve
+    key: dict = field(default_factory=dict)  # {"name","tonic","mode","confidence"}
+    genre: dict = field(default_factory=dict)  # {"label","confidence","probs"} (optional)
 
     def __post_init__(self) -> None:
         self.beats = _arr(self.beats)
         self.downbeats = _arr(self.downbeats)
+        self.rms = _arr(self.rms)
+        self.novelty = _arr(self.novelty)
 
     def to_dict(self) -> dict:
         return {
@@ -72,9 +91,16 @@ class AnalysisResult:
             "duration": round(float(self.duration), 4),
             "bpm": round(float(self.bpm), 3),
             "backend": self.backend,
+            "key": self.key,
+            "genre": self.genre,
             "beats": [round(float(t), 4) for t in self.beats],
             "downbeats": [round(float(t), 4) for t in self.downbeats],
             "sections": self.sections,
+            # Downsample the frame-level curves so the sidecar stays small but
+            # the energy/novelty shape is still inspectable.
+            "energy_profile": _downsample(self.rms, 120),
+            "novelty_profile": _downsample(self.novelty, 120),
+            "frame_hop_sec": round(float(self.rms_hop_sec), 5),
         }
 
 
@@ -94,8 +120,10 @@ class TransitionPlan:
     anchor_downbeats_b: np.ndarray = field(default_factory=lambda: np.array([]))
     stretch_ratio: float = 1.0
     fade_shape: str = "equal_power"
+    fade_sharpness: float = 1.0  # >1 = quicker, less gradual crossfade
     eq_params: dict = field(default_factory=dict)
     bridge: Optional[dict] = None  # {"kind", "start", "end"} or None
+    selection: dict = field(default_factory=dict)  # cue-point choice + reasoning
 
     def __post_init__(self) -> None:
         self.anchor_downbeats_a = _arr(self.anchor_downbeats_a)
@@ -111,6 +139,8 @@ class TransitionPlan:
             "anchor_downbeats_b": [round(float(t), 4) for t in self.anchor_downbeats_b],
             "stretch_ratio": round(float(self.stretch_ratio), 5),
             "fade_shape": self.fade_shape,
+            "fade_sharpness": round(float(self.fade_sharpness), 3),
             "eq_params": self.eq_params,
             "bridge": self.bridge,
+            "selection": self.selection,
         }

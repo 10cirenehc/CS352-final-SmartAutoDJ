@@ -58,9 +58,10 @@ Nothing but `README.md` and `.gitignore` exists yet. Target layout (create modul
 ```
 src/smartautodj/
   io.py          # load/save audio (librosa/soundfile), resampling
-  analysis.py    # tempo, beats, downbeats, structure (librosa → allin1/beat_this)
-  align.py       # tempo match, time-stretch, downbeat alignment
-  transition.py  # fade curves, EQ-style filtering, naive-crossfade baseline
+  analysis.py    # tempo, beats, downbeats (beat_this → librosa; allin1 opt-in) + structure feats
+  structure.py   # RMS/MFCC/chroma/onset novelty, key est, structure-aware cue-point selection
+  align.py       # tempo match, RubberBand time-stretch, downbeat alignment, cue selection
+  transition.py  # fade curves, equal-power bass-swap EQ, naive-crossfade baseline
   generative.py  # import + trim + normalize + beat-align AI clips (from assets/)
   mix.py         # sum/overlap tracks + layers over the transition region
   viz.py         # waveforms, spectrograms, beat markers, fade-curve plots
@@ -85,11 +86,15 @@ Add `data/`, `outputs/` to `.gitignore`. Keep `assets/generated/` small if commi
 Python ~3.10. Core (course toolkit): `librosa`, `numpy`, `scipy`, `matplotlib`, `soundfile`.
 
 ```bash
-brew install ffmpeg                      # required by audio loaders / allin1
+brew install ffmpeg rubberband           # ffmpeg: audio loaders/allin1; rubberband: HQ time-stretch
 conda create -n smartdj python=3.10
 conda activate smartdj
-pip install librosa numpy scipy matplotlib soundfile
+pip install librosa numpy scipy matplotlib soundfile pyrubberband
 ```
+
+> **Time-stretch quality:** `align.apply_stretch` prefers **RubberBand** (via `pyrubberband`,
+> needs the `rubberband` brew binary) — transient-aware, avoids the phase-vocoder "phasiness"
+> that made early transitions sound warped. Falls back to `librosa` if the binary is absent.
 
 **Better beats/downbeats/structure (optional upgrades over librosa):**
 - `madmom` is needed by both tools below and is **broken on PyPI** (only Py<3.10, numpy<1.20). Install from the CPJKU git fork:
@@ -110,15 +115,47 @@ pip install librosa numpy scipy matplotlib soundfile
   ```
 - `essentia` (optional) — loudness, key, energy, spectral descriptors for pairing/style selection.
 
-### Env B — generative (Google Colab / cloud GPU, NOT local)
-MusicGen/AudioCraft effectively need a **CUDA GPU (16 GB rec.)**; on macOS only `musicgen-small` runs (slowly) on CPU. **Decision: generate in Colab, download clips into `assets/generated/`**, and have `generative.py` treat them as static assets the local pipeline trims/aligns/mixes. Alt text-to-audio: **Stable Audio Open**.
+**Genre-driven transition style (optional upgrade):**
+- **genre classifier** (`transformers`) — picks the **transition style** per song pair (§11).
+  Install the extra: `pip install -e ".[genre]"`. Runs the small
+  `sanchit-gandhi/distilhubert-finetuned-gtzan` (distilHuBERT) on CPU on the **existing torch
+  stack** (torch arrives via beat_this — no new heavy runtime; this is Env A, *not* audiocraft).
+  **GTZAN is only 10 genres** (blues, classical, country, disco, hiphop, jazz, metal, pop,
+  reggae, rock) — *no* house/techno/ambient — so `disco`→dance and `classical`→ambient are
+  proxies. Falls back to the default beat-aligned style when transformers/the model is absent.
+  ```bash
+  python -m smartautodj.pipeline --song-a A.mp3 --song-b B.mp3 --tier 3            # --style auto
+  python -m smartautodj.pipeline --song-a A.mp3 --song-b B.mp3 --style dance       # force a preset
+  python -m smartautodj.pipeline --song-a A.mp3 --song-b B.mp3 --genre hiphop      # force the label
+  ```
 
-```python
-# Colab only
-pip install -U audiocraft   # needs torch==2.1.0 installed first; ffmpeg present
+### Env B — generative (Modal / cloud GPU, NOT local)
+MusicGen/AudioCraft effectively need a **CUDA GPU**; on macOS `audiocraft` is painful
+(pins torch 2.1, no real MPS, xformers). **Decision: generate on [Modal](https://modal.com)**
+— a serverless cloud GPU where audiocraft + torch 2.1 + ffmpeg are baked into a container
+**image once** (no per-session reinstall, unlike Colab) and the musicgen-style weights are
+cached on a Modal Volume. The app is `infra/modal_bridge.py`; the local side is just the
+lightweight `modal` client (extra `gen`). `generative.py` still treats the resulting clip as a
+static asset it trims/normalizes/mixes. Alt text-to-audio: **Stable Audio Open** (diffusers).
+
+```bash
+pip install -e ".[gen]"               # local: lightweight modal client only
+modal setup                           # one-time browser auth (free tier ~$30/mo credit)
+modal deploy infra/modal_bridge.py    # build image + cache weights once
+
+# standalone one-command generate (upload boundary-ref -> CUDA -> download clip):
+modal run infra/modal_bridge.py --ref outputs/A__B__tier3_boundary_ref.wav \
+    --prompt "<plan.bridge.prompt from the sidecar>" --out assets/generated/A__B_bridge.wav --duration 14
+
+# or inline — one command does ref + generate + mix:
+python -m smartautodj.pipeline --song-a A.mp3 --song-b B.mp3 --tier 3 --generate
 ```
 
-> ⚠️ Never mix Env A and Env B. `allin1`, `madmom`, and `audiocraft` pin incompatible torch/Python/numpy versions. Keep generative work in Colab.
+For unattended/agent runs set `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` instead of `modal setup`.
+The old Colab notebook (`notebooks/generative_musicgen.ipynb`) is kept only as a manual fallback.
+
+> ⚠️ Never install Env B's stack locally. `allin1`, `madmom`, and `audiocraft` pin incompatible
+> torch/Python/numpy versions — audiocraft lives **only** in the Modal image, never in `smartdj`.
 
 ---
 
@@ -135,7 +172,7 @@ Each module demonstrates a Music Perception course concept — keep these connec
 | MFCCs & Chromagrams | key/timbre matching to pick or order song pairs |
 | Self-Similarity | structure / phrase-boundary detection for transition points (SSM) |
 | Pitch Tracking | key estimation for harmonic compatibility |
-| Deep Learning / Autoencoders / Embeddings | neural beat trackers (beat_this) and MusicGen / Stable Audio |
+| Deep Learning / Autoencoders / Embeddings | neural beat trackers (beat_this), the distilHuBERT **genre classifier** that picks the transition style, and MusicGen / Stable Audio |
 
 ---
 
@@ -190,10 +227,56 @@ Libraries: librosa (https://librosa.org/) · all-in-one (https://github.com/mir-
 
 ## 11. Status & roadmap
 
-**Current:** repo scaffolding only (README + .gitignore + this file). No pipeline code yet.
+**Current:** full 3-tier pipeline working, with a Milestone-2 quality/structure pass done.
 
-- **Milestone 1 (first meeting):** install/smoke-test each tool; build the full pipeline skeleton; produce ≥1 working transition with visualizations.
-- **Milestone 2 (second meeting):** complete prototype + objective evaluation metrics.
+- **Milestone 1 (first meeting):** ✅ pipeline skeleton + ≥1 working transition with visualizations.
+- **Milestone 2 (second meeting):** prototype + objective metrics. Done so far:
+  - **Audio quality:** fixed the bass-swap EQ (was a midpoint bass dropout → equal-power
+    handoff in `transition.bass_swap_curves`); time-stretch now prefers **RubberBand**
+    (`align.apply_stretch`) over the phase vocoder; headroom guard in `mix` (real songs hit
+    1.24 full-scale → would have clipped). Robust **median-of-inlier** tempo in
+    `align._beat_period` (a polyfit slope inverted the stretch direction when beat_this
+    missed beats on a real song — verified fixed: rendered-overlap beat dev ~5 ms).
+  - **Structure-aware cue points:** new `structure.py` — RMS energy, MFCC/chroma/onset
+    fused **novelty**, Krumhansl **key** + harmonic compatibility. `align.select_transition_region`
+    now drops into a high-energy phrase (not B's intro): `cue_method="energy"` (Phase 1) or
+    `"novelty"` (Phase 2). Energy/novelty/key go to the sidecar + a `*_structure.png` plot.
+  - **Backends:** `backend="auto"` now prefers **beat_this** (Colab-friendly) → librosa;
+    **allin1 is optional/local-only** (fragile, broken in Colab), no longer on the auto path.
+  - **Generative:** `generative.resolve_bridge` loads a real **MusicGen-Style** clip from
+    `assets/generated/<pair>_bridge.wav` (else procedural fallback); tier-3 exports a
+    boundary-reference WAV + auto-built prompt.
+  - **Generation moved Colab → Modal:** the bridge is now generated on **Modal** (serverless
+    CUDA) via `infra/modal_bridge.py` — audiocraft/torch-2.1 baked into an image once, weights
+    on a Volume, no per-session reinstall. `src/smartautodj/remote.py` is the thin local client;
+    `pipeline.run` gains `--generate` so one command (`--tier 3 --generate`) builds the boundary
+    reference, generates on the GPU, and mixes — or run `modal run infra/modal_bridge.py …`
+    standalone. `--generate` is opt-in; default runs use the procedural fallback (fast/free).
+    Local stays clean (extra `gen = [modal]` is just the client). See §5 (Env B).
+  - **Genre-driven transition style:** new `genre.py` — a pretrained distilHuBERT/GTZAN
+    classifier (`classify_genre`) picks *how* the transition sounds, not just where. Each
+    track's genre maps to a **style family** (`dance`/`urban`/`dub`/`band`/`smooth`/`ambient`),
+    and `transition_style` combines A+B into a `StylePreset` that overrides existing knobs —
+    overlap `bars`, the time-stretch `tempo_tol` gate, the bass-swap EQ toggle, the cue method.
+    `pipeline.run` gains `--style {auto,dance,urban,techno,dub,band,smooth,ambient,default}`
+    (techno/dub are manual-only; reggae auto-maps to `dub`) and `--genre LABEL`; explicit
+    `--bars/--tempo-tol/--cue` still win. Detected genres + chosen style go to the sidecar +
+    structure-plot title. Falls back to `default` when transformers is absent. GTZAN's 10-genre
+    taxonomy (no house/techno/ambient) is the known limitation.
+  - **Genre-authentic bridge elements:** the style preset also selects a **`BridgeSpec`**
+    (`genre.BRIDGE_SPECS`) — the genre's characteristic transition element, grounded in DJ
+    practice: dance→`riser`, hip-hop→`stab_fill` (air-horn + vocal stab + boom-bap fill),
+    techno→`noise_sweep`, reggae→`siren` (dub siren), ambient→`pad_wash`, pop→`sweep_wash`,
+    rock→`cymbal`. Each spec carries a MusicGen prompt template (filled with BPM/key/duration)
+    and a procedural fallback synth (`generative.make_placeholder_bridge` now does
+    riser/drum_fill/siren/pad/cymbal). **Coverage policy (genre-appropriate):**
+    dance/urban/techno/dub/ambient add their element by default at tier 3; **rock & pop add a
+    subtle accent only on `--generate`** (a synth layer on those reads as a gimmick — real DJs
+    use track-driven moves there). The chosen `element` lands in the sidecar (`plan.bridge`).
+    `--bridge {riser,drum_fill,siren,pad,cymbal}` overrides the procedural kind.
+  - **Still TODO:** listening survey; run on a real-song library; tune novelty weights; tune the
+    per-genre preset numbers + element prompts by ear; **track-driven moves** (echo/delay throw on
+    the outgoing tail, acapella bridge, hard cut) as a follow-up to the additive generated layer.
 - **Final presentation:** demo, survey results, tested audio examples, project website.
 
 **De-risking rule:** test each module on short, consistent clips first. If any tool is too slow/unreliable to install or run, **simplify** — drop to librosa-only beats, pre-generate a small AI-clip library, or cut a feature. Find out early.

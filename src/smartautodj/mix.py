@@ -15,6 +15,7 @@ from __future__ import annotations
 import numpy as np
 
 from .io import to_samples
+from .postprocess import integrate_bridge, loudness_match  # noqa: F401 (re-export)
 from .transition import process_overlap
 from .types import TransitionPlan
 
@@ -25,6 +26,10 @@ def mix_transition(
     plan: TransitionPlan,
     sr: int,
     bridge: np.ndarray | None = None,
+    bridge_gain_db: float = -3.0,
+    bridge_duck_db: float = 6.0,
+    bridge_limit: bool = True,
+    bridge_spectral: bool = True,
 ) -> tuple[np.ndarray, dict]:
     """Render the full transition. ``b`` must already be tempo-stretched.
 
@@ -48,15 +53,40 @@ def mix_transition(
     n = len(a_proc)
     overlap = a_proc + b_proc
 
+    bridge_info: dict = {}
     if bridge is not None and len(bridge):
         bridge = np.asarray(bridge, dtype=np.float32)
         bridge = bridge[:n] if len(bridge) >= n else np.pad(bridge, (0, n - len(bridge)))
-        overlap = overlap + bridge
+        # Make the bridge sit like a DJ transition: loudness-match -> limit ->
+        # duck the two songs under it -> spectral carve (see postprocess.py). The
+        # headroom guard below still catches any over-full-scale peak.
+        overlap, bridge_info = integrate_bridge(
+            overlap, bridge, sr,
+            rel_db=bridge_gain_db, duck_db=bridge_duck_db,
+            limit=bridge_limit, spectral=bridge_spectral,
+        )
+
+    overlap_peak = float(np.max(np.abs(overlap))) if n else 0.0
 
     y_out = np.concatenate([a_intro, overlap, b_outro]).astype(np.float32)
+
+    # Headroom guard: if summing A+B(+bridge) pushed the overlap past full scale,
+    # scale the WHOLE output down (not just the overlap) so we never hard-clip
+    # mid-transition — clipping is itself an audible "warped"/crunchy artifact —
+    # while preserving relative levels across the seams (no loudness jump).
+    ceiling = 0.99
+    applied_gain = 1.0
+    peak = float(np.max(np.abs(y_out))) if y_out.size else 0.0
+    if peak > ceiling:
+        applied_gain = ceiling / peak
+        y_out = (y_out * applied_gain).astype(np.float32)
+
     info = {
         "overlap_start_sample": int(len(a_intro)),
         "overlap_len_sample": int(n),
         "out_len_sample": int(len(y_out)),
+        "overlap_peak": round(overlap_peak, 4),
+        "headroom_gain": round(applied_gain, 4),
+        **bridge_info,  # bridge_rel_db / duck / limit / spectral / peak (if a bridge)
     }
     return y_out, info

@@ -1,20 +1,24 @@
 """Tempo / beat / downbeat / structure analysis.
 
-Two backends behind one interface (``analyze`` -> ``AnalysisResult``):
+Backends behind one interface (``analyze`` -> ``AnalysisResult``):
 
-  * **allin1** (preferred): a model that returns BPM, beats, downbeats and
-    *labeled* sections (intro/verse/chorus/...). Carries install risk
-    (needs madmom + ffmpeg), so it is optional.
-  * **librosa** (fallback, always available): tempo + beats from
+  * **beat_this** (preferred): a CPJKU transformer beat/downbeat tracker. Runs on
+    CPU, installs cleanly, and works in Colab — unlike allin1. Gives accurate
+    downbeats; structure/energy come from our own ``structure`` module.
+  * **librosa** (always-available fallback): tempo + beats from
     ``librosa.beat.beat_track``; downbeats *derived* by assuming 4/4 and
-    choosing the strongest bar phase; sections from a self-similarity
-    segmentation.
+    choosing the strongest bar phase.
+  * **allin1** (optional, local-only upgrade): also returns *labeled* sections
+    (intro/verse/chorus/...). Its NATTEN/madmom pin matrix is fragile and broken
+    in Colab, so it is no longer on the auto path — request it explicitly.
 
-``backend="auto"`` tries allin1 and silently falls back to librosa on any
-failure — this is the de-risking guarantee: the pipeline always runs.
+``backend="auto"`` prefers beat_this and silently falls back to librosa on any
+failure — the de-risking guarantee: the pipeline always runs. Every backend's
+result is enriched with frequency-domain features (energy, novelty, key) via
+:func:`structure.analyze_structure`, so structure no longer depends on allin1.
 
-Course topics: Self-Similarity (structure segmentation), Deep Learning
-(allin1 / neural beat tracking), Pitch/Chroma (features for segmentation).
+Course topics: Self-Similarity / MFCC / Chroma (structure features), Deep
+Learning (neural beat tracking).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ import librosa
 import numpy as np
 
 from . import DEFAULT_SR
+from . import structure as structure_mod
 from .io import load_audio
 from .types import AnalysisResult
 
@@ -34,17 +39,30 @@ def analyze(path: str, backend: str = "auto", sr: int = DEFAULT_SR) -> AnalysisR
 
     Parameters
     ----------
-    backend : {"auto", "allin1", "librosa"}
-        "auto" prefers allin1 and falls back to librosa on any error.
+    backend : {"auto", "beat_this", "librosa", "allin1"}
+        "auto" prefers beat_this and falls back to librosa on any error.
+        "allin1" is an explicit, local-only opt-in (fragile, broken in Colab).
     """
-    if backend in ("auto", "allin1"):
+    if backend == "allin1":
+        return _analyze_allin1(path, sr=sr)
+    if backend in ("auto", "beat_this"):
         try:
-            return _analyze_allin1(path, sr=sr)
-        except Exception as exc:  # import error, runtime error, slow/flaky tool
-            if backend == "allin1":
+            return _analyze_beat_this(path, sr=sr)
+        except Exception as exc:  # not installed, runtime error
+            if backend == "beat_this":
                 raise
-            warnings.warn(f"allin1 unavailable ({exc}); falling back to librosa.")
+            warnings.warn(f"beat_this unavailable ({exc}); falling back to librosa.")
     return _analyze_librosa(path, sr=sr)
+
+
+def _attach_structure(result: AnalysisResult, y: np.ndarray, sr: int) -> AnalysisResult:
+    """Populate frequency-domain features (energy/novelty/key) on a result."""
+    feats = structure_mod.analyze_structure(y, sr)
+    result.rms = feats["rms"]
+    result.rms_hop_sec = feats["hop_sec"]
+    result.novelty = feats["novelty"]
+    result.key = feats["key"]
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -94,7 +112,7 @@ def _analyze_allin1(path: str, sr: int = DEFAULT_SR) -> AnalysisResult:
         {"start": float(s.start), "end": float(s.end), "label": str(s.label)}
         for s in getattr(result, "segments", [])
     ]
-    return AnalysisResult(
+    res = AnalysisResult(
         path=path,
         sr=sr,
         duration=len(y) / sr,
@@ -104,6 +122,49 @@ def _analyze_allin1(path: str, sr: int = DEFAULT_SR) -> AnalysisResult:
         sections=sections,
         backend="allin1",
     )
+    return _attach_structure(res, y, sr)
+
+
+# --------------------------------------------------------------------------- #
+# Preferred backend: beat_this (CPJKU transformer, Colab/CPU-friendly)
+# --------------------------------------------------------------------------- #
+def _analyze_beat_this(path: str, sr: int = DEFAULT_SR) -> AnalysisResult:
+    """Beats/downbeats from beat_this; tempo + structure derived locally."""
+    from beat_this.inference import File2Beats  # lazy: optional dependency
+
+    f2b = File2Beats(checkpoint_path="final0", device="cpu", dbn=False)
+    beats, downbeats = f2b(path)
+    beats = np.asarray(beats, dtype=float)
+    downbeats = np.asarray(downbeats, dtype=float)
+
+    y, sr = load_audio(path, sr=sr)
+    bpm = _bpm_from_beats(beats)
+    sections = _segment_structure(y, sr)
+    res = AnalysisResult(
+        path=path,
+        sr=sr,
+        duration=len(y) / sr,
+        bpm=bpm,
+        beats=beats,
+        downbeats=downbeats if downbeats.size else beats[:1],
+        sections=sections,
+        backend="beat_this",
+    )
+    return _attach_structure(res, y, sr)
+
+
+def _bpm_from_beats(beats: np.ndarray) -> float:
+    """Global tempo from the robust beat period.
+
+    Uses the SAME robust period estimator as the stretch stage
+    (:func:`align._beat_period`, median of inlier IBIs) so ``bpm`` and the
+    time-stretch ratio stay consistent — otherwise the tempo-match metric can
+    look like the stretch made things worse when alignment is actually fine.
+    """
+    from .align import _beat_period  # one-way import (align doesn't import analysis)
+
+    period = _beat_period(np.asarray(beats, dtype=float))
+    return 60.0 / period if period > 0 else 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -118,7 +179,7 @@ def _analyze_librosa(path: str, sr: int = DEFAULT_SR) -> AnalysisResult:
     downbeats = _derive_downbeats(y, sr, beat_frames, beats)
     sections = _segment_structure(y, sr)
 
-    return AnalysisResult(
+    res = AnalysisResult(
         path=path,
         sr=sr,
         duration=len(y) / sr,
@@ -128,6 +189,7 @@ def _analyze_librosa(path: str, sr: int = DEFAULT_SR) -> AnalysisResult:
         sections=sections,
         backend="librosa",
     )
+    return _attach_structure(res, y, sr)
 
 
 def _derive_downbeats(
