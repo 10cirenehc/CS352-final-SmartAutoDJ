@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="SmartAutoDJ project demo: structure-aware automatic DJ transitions."
+    />
+    <title>SmartAutoDJ | Structure-Aware Automatic DJ Transitions</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <canvas id="signal-canvas" aria-hidden="true"></canvas>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="SmartAutoDJ home">
+        <span class="brand-mark">SA</span>
+        <span>SmartAutoDJ</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#pipeline">Pipeline</a>
+        <a href="#tiers">Tiers</a>
+        <a href="#demos">Demos</a>
+        <a href="#deploy">Deploy</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">CS 352 Music Perception Final Project</p>
+          <h1>SmartAutoDJ</h1>
+          <p class="hero-lede">
+            Structure-aware automatic DJ transitions that analyze two songs,
+            align musical boundaries, reshape the overlap, and render a cleaner
+            handoff than a plain crossfade.
+          </p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#demos">Listen to demos</a>
+            <a class="ghost-action" href="#pipeline">Explore the pipeline</a>
+          </div>
+        </div>
+
+        <div class="hero-console" aria-label="Pipeline summary">
+          <div class="console-topline">
+            <span></span>
+            <span></span>
+            <span></span>
+            <strong>transition_plan.json</strong>
+          </div>
+          <div class="signal-strip">
+            <div class="wave wave-a"></div>
+            <div class="mix-window">
+              <span>8 bars</span>
+            </div>
+            <div class="wave wave-b"></div>
+          </div>
+          <dl class="console-stats">
+            <div>
+              <dt>Beat error</dt>
+              <dd>0.005s</dd>
+            </div>
+            <div>
+              <dt>BPM gap</dt>
+              <dd>5.86 -> 0.81</dd>
+            </div>
+            <div>
+              <dt>Mode</dt>
+              <dd>Tier 3</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="overview section-band" aria-label="Project overview">
+        <div class="metric-row">
+          <article>
+            <strong>1</strong>
+            <span>Outgoing track</span>
+          </article>
+          <article>
+            <strong>2</strong>
+            <span>Incoming track</span>
+          </article>
+          <article>
+            <strong>3</strong>
+            <span>Comparable transition tiers</span>
+          </article>
+          <article>
+            <strong>4</strong>
+            <span>Plots, sidecars, and audio renders</span>
+          </article>
+        </div>
+      </section>
+
+      <section id="pipeline" class="pipeline section-band">
+        <div class="section-heading">
+          <p class="eyebrow">How it works</p>
+          <h2>From two songs to one musical handoff.</h2>
+        </div>
+
+        <div class="pipeline-board">
+          <button class="stage is-active" data-stage="analyze">
+            <span class="stage-index">01</span>
+            <span class="stage-title">Analyze</span>
+            <span class="stage-copy">BPM, beats, downbeats, and sections.</span>
+          </button>
+          <button class="stage" data-stage="align">
+            <span class="stage-index">02</span>
+            <span class="stage-title">Align</span>
+            <span class="stage-copy">Choose compatible regions and anchors.</span>
+          </button>
+          <button class="stage" data-stage="shape">
+            <span class="stage-index">03</span>
+            <span class="stage-title">Shape</span>
+            <span class="stage-copy">Stretch, fade, and swap bass energy.</span>
+          </button>
+          <button class="stage" data-stage="bridge">
+            <span class="stage-index">04</span>
+            <span class="stage-title">Bridge</span>
+            <span class="stage-copy">Add risers or drum fills for tier 3.</span>
+          </button>
+          <button class="stage" data-stage="render">
+            <span class="stage-index">05</span>
+            <span class="stage-title">Render</span>
+            <span class="stage-copy">Write WAV, JSON, metrics, and plots.</span>
+          </button>
+        </div>
+
+        <div class="stage-detail" aria-live="polite">
+          <div>
+            <p class="eyebrow" id="stage-kicker">Stage 01</p>
+            <h3 id="stage-title">Analyze musical structure</h3>
+            <p id="stage-body">
+              SmartAutoDJ extracts tempo, beat grids, downbeats, and section
+              cues for both tracks. The pipeline can use allin1 for richer
+              structure or fall back to librosa so the demo stays reproducible.
+            </p>
+          </div>
+          <div class="stage-visual" id="stage-visual" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+      </section>
+
+      <section id="tiers" class="tiers section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Three comparison tiers</p>
+          <h2>Each tier adds one layer of musical intelligence.</h2>
+        </div>
+
+        <div class="tier-grid">
+          <article class="tier-card">
+            <span class="tier-number">Tier 1</span>
+            <h3>Baseline crossfade</h3>
+            <p>
+              A direct linear overlap from the tail of song A into the head of
+              song B. It sets the control condition for every comparison.
+            </p>
+            <ul>
+              <li>No region selection</li>
+              <li>No tempo matching</li>
+              <li>Plain full-band fades</li>
+            </ul>
+          </article>
+          <article class="tier-card feature">
+            <span class="tier-number">Tier 2</span>
+            <h3>Beat-aligned transition</h3>
+            <p>
+              Selects a musically meaningful overlap, stretches B toward A's
+              tempo, aligns downbeats, and uses equal-power fades with bass
+              swap filtering.
+            </p>
+            <ul>
+              <li>Downbeat-aware overlap</li>
+              <li>Tempo stretch ratio</li>
+              <li>Low-frequency handoff</li>
+            </ul>
+          </article>
+          <article class="tier-card">
+            <span class="tier-number">Tier 3</span>
+            <h3>AI-enhanced bridge</h3>
+            <p>
+              Adds a short riser, fill, swell, or pad underneath the tier 2
+              mix. Static generated clips can be dropped into the repo later.
+            </p>
+            <ul>
+              <li>Trimmed to transition length</li>
+              <li>Normalized under the mix</li>
+              <li>Rendered with the same plan</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="demos" class="demos section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Demo audio</p>
+          <h2>Drop finished renders here when they are ready.</h2>
+        </div>
+
+        <div class="demo-layout">
+          <div class="demo-copy">
+            <p>
+              This page is intentionally static. Put exported WAV or MP3 files
+              in <code>website/audio/</code>, then update the short list in
+              <code>app.js</code>. The cards and waveform bars will populate
+              automatically.
+            </p>
+            <div class="mini-checklist">
+              <span>Export from pipeline</span>
+              <span>Copy audio into website/audio</span>
+              <span>Edit demoTracks in app.js</span>
+            </div>
+          </div>
+          <div class="audio-stack" id="audio-stack"></div>
+        </div>
+      </section>
+
+      <section class="metrics section-band">
+        <div class="section-heading">
+          <p class="eyebrow">What the sidecar explains</p>
+          <h2>Every render carries evidence.</h2>
+        </div>
+        <div class="metric-cards">
+          <article>
+            <span>Beat alignment error</span>
+            <strong>Mean |delta t|</strong>
+            <p>Shows how tightly matched beats land across the overlap.</p>
+          </article>
+          <article>
+            <span>Tempo match quality</span>
+            <strong>BPM before -> after</strong>
+            <p>Shows how much time stretching reduces the tempo gap.</p>
+          </article>
+          <article>
+            <span>Loudness continuity</span>
+            <strong>Max dB jump</strong>
+            <p>Checks whether the transition creates abrupt level changes.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="deploy" class="deploy section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Deploy</p>
+          <h2>Static files only.</h2>
+        </div>
+        <div class="deploy-panel">
+          <p>
+            The site can be deployed as the <code>website/</code> directory on
+            GitHub Pages, Netlify, Vercel, or any static host. There is no
+            server, no upload flow, and no model dependency.
+          </p>
+          <pre><code>website/
+  index.html
+  styles.css
+  app.js
+  audio/</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>SmartAutoDJ</span>
+      <span>Structure-aware automatic DJ transitions</span>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
