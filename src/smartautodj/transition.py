@@ -49,6 +49,113 @@ def fade_curves(
     return np.cos(t * np.pi / 2.0), np.sin(t * np.pi / 2.0)
 
 
+def cut_fade_out(n: int, fade_frac: float = 0.8) -> np.ndarray:
+    """A's gain for a quick-cut seam: steep fade to silence, then hold at 0.
+
+    Unlike :func:`fade_curves` (a *symmetric* crossfade), the cut shape fades A
+    out on its own clock so the outgoing track is essentially gone before B's
+    drop — leaving the seam to the buildup effect. A's level follows an
+    equal-power cos to ~0 across the first ``fade_frac`` of the seam, then stays
+    silent for the rest (the run-up to the drop). ``fade_frac`` defaults to 0.8
+    so A fills most of the seam (avoids an energy hole before the effect peaks);
+    lower it for a more abrupt cut / a longer silent run-up.
+    """
+    if n <= 1:
+        return np.zeros(max(n, 0), dtype=np.float32)
+    frac = float(np.clip(fade_frac, 1e-3, 1.0))
+    g = np.zeros(n, dtype=np.float32)
+    k = max(int(round(frac * n)), 1)
+    t = np.linspace(0.0, 1.0, k)
+    g[:k] = np.cos(t * np.pi / 2.0)  # 1 -> 0 over the fade window
+    return g
+
+
+def cut_bridge_envelope(n: int, power: float = 1.3) -> np.ndarray:
+    """Rising 0->1 envelope for the seam effect, peaking at the drop.
+
+    The buildup effect should swell *into* the drop, so its envelope ramps up and
+    peaks at the last sample (where B lands). ``power`` shapes the curve: 1 is a
+    linear ramp, >1 keeps it quieter early and rushes up at the end (a more
+    DJ-like tension build). Default 1.3 — a gentle build that is already audible
+    through the middle of the seam (so it fills the gap as A fades) rather than
+    staying near-silent until the very end.
+    """
+    if n <= 1:
+        return np.ones(max(n, 0), dtype=np.float32)
+    t = np.linspace(0.0, 1.0, n)
+    return (t ** float(power)).astype(np.float32)
+
+
+def sweep_ramp(n: int) -> np.ndarray:
+    """Equal-power 0->1 ramp used to swell B's bass in (the high-pass filter-in).
+
+    Paired with :func:`split_bands`: B enters with its high band full and its low
+    band ramped in by this curve, so the bass "arrives" over ~1 bar after the
+    drop instead of cold — easing the cut into B (Convolution & Filtering).
+    """
+    if n <= 1:
+        return np.ones(max(n, 0), dtype=np.float32)
+    t = np.linspace(0.0, 1.0, n)
+    return np.sin(t * np.pi / 2.0).astype(np.float32)
+
+
+def swept_bandpass_svf(
+    x: np.ndarray, sr: int, f_lo: float = 200.0, f_hi: float = 12000.0, q: float = 8.0
+) -> np.ndarray:
+    """Resonant band-pass whose center frequency sweeps exp ``f_lo`` -> ``f_hi``.
+
+    This is the real "swoosh": a high-``q`` band-pass that *rings* at its center,
+    swept up the spectrum, so a moving resonant peak whistles upward (a fixed 2-band
+    gain crossfade has no moving peak and can't swoosh). Uses the **TPT/Zavalishin
+    state-variable filter**, which is unconditionally stable up to Nyquist — the
+    naive Chamberlin SVF blows up above ~sr/6 (~7 kHz), exactly the high range we
+    sweep into. Per-sample recursion (coeffs precomputed/vectorised), bandpass tap.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    n = x.size
+    if n < 2:
+        return x.astype(np.float32)
+    t = np.linspace(0.0, 1.0, n)
+    fc = np.clip(f_lo * (f_hi / f_lo) ** t, 20.0, 0.49 * sr)
+    g = np.tan(np.pi * fc / sr)          # TPT prewarped cutoff
+    k = 1.0 / max(float(q), 0.5)         # damping; small k = high resonance
+    a1 = 1.0 / (1.0 + g * (g + k))
+    a2 = g * a1
+    a3 = g * a2
+    y = np.empty(n)
+    ic1 = 0.0  # integrator states
+    ic2 = 0.0
+    for i in range(n):
+        v3 = x[i] - ic2
+        v1 = a1[i] * ic1 + a2[i] * v3
+        v2 = ic2 + a2[i] * ic1 + a3[i] * v3
+        ic1 = 2.0 * v1 - ic1
+        ic2 = 2.0 * v2 - ic2
+        y[i] = v1  # band-pass output
+    return y.astype(np.float32)
+
+
+def make_whoosh(
+    n: int, sr: int, f_lo: float = 200.0, f_hi: float = 12000.0,
+    q: float = 8.0, seed: int = 0,
+) -> np.ndarray:
+    """A swept-resonant-band-pass white-noise whoosh that swells into the drop.
+
+    The canonical riser/whoosh (per sound-design practice): white noise through a
+    resonant band-pass swept up the spectrum, with a rising amplitude envelope so it
+    peaks at the end (the drop). Returned peak-normalised; the caller stages level.
+    """
+    if n < 2:
+        return np.zeros(max(n, 0), dtype=np.float32)
+    rng = np.random.default_rng(seed)
+    noise = rng.standard_normal(n).astype(np.float32)
+    w = swept_bandpass_svf(noise, sr, f_lo, f_hi, q)
+    t = np.linspace(0.0, 1.0, n).astype(np.float32)
+    w = w * (t ** 1.5)  # swell into the drop
+    peak = float(np.max(np.abs(w))) or 1.0
+    return (w / peak).astype(np.float32)
+
+
 def bass_swap_curves(
     n: int, center: float = 0.5, width: float = 0.2
 ) -> tuple[np.ndarray, np.ndarray]:

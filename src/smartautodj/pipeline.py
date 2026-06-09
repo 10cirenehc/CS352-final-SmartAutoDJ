@@ -60,6 +60,11 @@ def run(
     cue_a: float | None = None,
     cue_b: float | None = None,
     fade_sharpness: float = 2.5,
+    cut_sweep_bars: float = 2.0,
+    cut_woosh: str = "noise",
+    cut_xfade_bars: float = 2.0,
+    cut_fade_frac: float = 0.65,
+    riserize: bool = True,
     make_plots: bool = True,
     seed: int = 0,
     sr: int = DEFAULT_SR,
@@ -108,6 +113,7 @@ def run(
         plan = align_mod.select_transition_region(
             a, b, bars=eff_bars, tempo_tol=eff_tol, tier=tier, cue_method=eff_cue,
             y_a=y_a, y_b=y_b, sr=sr, cue_a=cue_a, cue_b=cue_b, fade_sharpness=fade_sharpness,
+            shape=preset.shape,
         )
         # Preset toggles the bass-swap EQ off (e.g. urban/ambient) by clearing
         # eq_params, which transition.process_overlap reads as "plain crossfade".
@@ -148,22 +154,32 @@ def run(
     default_clip = os.path.join("assets", "generated", f"{pair}__{spec.element}_bridge.wav")
     clip_path = bridge_clip or (default_clip if os.path.exists(default_clip) else None)
     if tier == 3 and (preset.bridge_auto or generate or clip_path):
-        prompt = gen_mod.build_bridge_prompt(a, b, plan.overlap_sec, template=spec.prompt)
+        prompt = gen_mod.build_bridge_prompt(a, b, plan.overlap_sec, template=spec.prompt,
+                                             melodic=spec.melodic)
         # --generate: synthesize the clip now on Modal (CUDA, musicgen-style),
         # conditioned on the A->B boundary reference, and drop it where resolve_bridge
         # expects it — so one command produces the real AI bridge (no Colab round-trip).
         if clip_path is None and generate:
             ref = gen_mod.extract_boundary_reference(y_a, y_b_proc, plan, sr)
             # eval_q (1..6): how strongly MusicGen-Style adheres to the reference
-            # timbre. Higher => the bridge sounds like the actual songs.
+            # timbre. The boundary reference is a muddy A+B crossfade, so conditioning
+            # HARD on it produces muffled nonsense — keep it LOOSE (eval_q=1) by default
+            # and let the text prompt (genre/key/tempo/effect) carry the style.
+            # --bridge-eval-q overrides for the rare case you want the songs' timbre.
+            eval_q = 1 if bridge_eval_q == 2 else bridge_eval_q
             clip_path = remote_mod.generate_bridge_to_file(
                 ref, sr, prompt, plan.overlap_sec, default_clip,
-                params={"eval_q": bridge_eval_q},
+                params={"eval_q": eval_q},
             )
         # Procedural fallback kind comes from the genre spec unless --bridge overrides.
         bridge_kind_used = bridge_kind or spec.proc_kind
+        # Only abstract upward sweeps get riserized (an EQ filter-sweep into the drop);
+        # drum fills / hits / sirens / pads / riffs must NOT be filtered into a sweep
+        # (that's what made the hip-hop fill sound muffled).
+        riserize_this = riserize and effect_name in ("riser", "sweep")
         bridge, src = gen_mod.resolve_bridge(
             plan.overlap_sec, sr, a.bpm, clip_path=clip_path, kind=bridge_kind_used, seed=seed,
+            riserize_clip=riserize_this,
         )
         plan.bridge = {
             "start": round(float(plan.region_a[0]), 4),
@@ -183,9 +199,18 @@ def run(
             plan.bridge["expected_clip_path"] = default_clip
 
     # --- mix + evaluate ---
+    # Cut-shape knobs (bars -> seconds at A's tempo; ignored by the blend path):
+    # the woosh length (B's filter-in) and the riser->B crossfade length. 0 disables.
+    bar_dur = align_mod.METER * 60.0 / max(a.bpm, 1.0)
+    # Pass seconds directly (0 bars -> 0.0 -> disabled; never None, which means
+    # "use the mix default" for direct callers).
+    cut_sweep_sec = max(0.0, cut_sweep_bars) * bar_dur
+    cut_xfade_sec = max(0.0, cut_xfade_bars) * bar_dur
     y_out, info = mix_transition(y_a, y_b_proc, plan, sr, bridge=bridge,
                                  bridge_gain_db=bridge_gain_db, bridge_duck_db=bridge_duck_db,
-                                 bridge_limit=bridge_limit, bridge_spectral=bridge_spectral)
+                                 bridge_limit=bridge_limit, bridge_spectral=bridge_spectral,
+                                 cut_sweep_sec=cut_sweep_sec, cut_woosh=cut_woosh,
+                                 cut_xfade_sec=cut_xfade_sec, cut_fade_frac=cut_fade_frac)
     metrics = evaluate_mod.evaluate_all(a, b, plan, y_out, info, sr)
 
     # --- export WAV + sidecar (+ plots) ---
@@ -252,6 +277,19 @@ def _resolve_style(style, genre, a, b, y_a, y_b, sr):
     Anything unknown / failing falls back to the ``default`` preset (today's
     behaviour), per the project's de-risking rule.
     """
+    if style == "cut":
+        # `cut` is always a riser/riff (effect not genre-picked — GTZAN can't tell
+        # EDM from hip-hop), but we still classify (or honor --genre) so the detected
+        # genre can be CONVEYED in the generation prompt (the style cue, since the
+        # audio conditioning is kept loose). Prompt-only; does not change the effect.
+        if genre is not None:
+            a.genre = {"label": genre, "confidence": None, "probs": {}, "source": "override"}
+            b.genre = dict(a.genre)
+        else:
+            a.genre = genre_mod.classify_genre(y_a, sr=sr)
+            b.genre = genre_mod.classify_genre(y_b, sr=sr)
+        return "cut", genre_mod.STYLE_PRESETS["cut"]
+
     if genre is not None:
         a.genre = {"label": genre, "confidence": None, "probs": {}, "source": "override"}
         b.genre = dict(a.genre)
@@ -281,15 +319,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", default="outputs", help="output directory")
     p.add_argument("--style", default="auto",
                    choices=("auto", "dance", "urban", "techno", "dub", "band",
-                            "smooth", "ambient", "default"),
-                   help="transition style: auto (detect genre) or a named preset")
+                            "smooth", "ambient", "default", "cut"),
+                   help="transition style: auto (detect genre) or a named preset "
+                        "('cut' = punchy quick-cut: fade A out, short buildup, drop B in)")
     p.add_argument("--genre", default=None,
                    help="force a GTZAN genre label for both tracks (skip detection), "
                         "e.g. hiphop, disco, classical")
     p.add_argument("--effect", default=None,
-                   choices=("riser", "buildup", "hits", "impact", "sweep", "siren", "pad"),
+                   choices=("riser", "buildup", "hits", "impact", "sweep", "siren", "pad", "riff"),
                    help="override the tier-3 transition effect (default: chosen from "
-                        "genre + transition context)")
+                        "genre + transition context). 'riff' = a melodic run in the tracks' "
+                        "key/timbre instead of an abstract FX")
     p.add_argument("--bpm-a", type=float, default=None,
                    help="override the detected tempo of A (when the beat tracker mis-detects)")
     p.add_argument("--bpm-b", type=float, default=None,
@@ -301,6 +341,21 @@ def build_parser() -> argparse.ArgumentParser:
                    help="manually place B's entry at this time (s); snapped to a downbeat")
     p.add_argument("--fade-sharpness", type=float, default=2.5,
                    help="crossfade quickness: 1=gradual equal-power, higher=quicker/punchier swap")
+    p.add_argument("--cut-sweep-bars", type=float, default=2.0,
+                   help="quick-cut only (--style cut): bars over which the woosh/swoosh runs; "
+                        "0 = no woosh")
+    p.add_argument("--cut-woosh", default="noise",
+                   choices=("noise", "bandpass", "highpass", "lowpass", "none"),
+                   help="quick-cut only: the swoosh into the drop — noise (swept-resonant-noise "
+                        "whoosh layer, the aggressive default), bandpass (swept resonant "
+                        "band-pass on B's entrance), highpass/lowpass (gentle 2-band B filter-in), "
+                        "or none")
+    p.add_argument("--cut-xfade-bars", type=float, default=2.0,
+                   help="quick-cut only: bars over which B crossfades in over the swoosh "
+                        "(the 'smoosh'; B enters on a downbeat); 0 = hard cut")
+    p.add_argument("--cut-fade-frac", type=float, default=0.65,
+                   help="quick-cut only: fraction of the seam over which A fades to silence "
+                        "(lower = A fades out sooner/more; 0.65 default)")
     p.add_argument("--bars", type=int, default=None,
                    help="overlap length in bars (tier 2/3); overrides the style preset")
     p.add_argument("--overlap-sec", type=float, default=None,
@@ -328,6 +383,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="disable soft-limiting the bridge transients")
     p.add_argument("--no-spectral-carve", action="store_true",
                    help="disable the per-frequency spectral carve of the program under the bridge")
+    p.add_argument("--no-riserize", action="store_true",
+                   help="tier 3: don't impose a rising filter/pitch sweep on the generated "
+                        "clip (by default the AI clip is 'riserized' so it sweeps up into the drop)")
     p.add_argument("--backend", default="auto",
                    choices=("auto", "beat_this", "librosa", "allin1"),
                    help="analysis backend (auto: beat_this -> librosa)")
@@ -369,6 +427,11 @@ def main(argv: list[str] | None = None) -> None:
         cue_a=args.cue_a,
         cue_b=args.cue_b,
         fade_sharpness=args.fade_sharpness,
+        cut_sweep_bars=args.cut_sweep_bars,
+        cut_woosh=args.cut_woosh,
+        cut_xfade_bars=args.cut_xfade_bars,
+        cut_fade_frac=args.cut_fade_frac,
+        riserize=not args.no_riserize,
         make_plots=not args.no_plots,
         seed=args.seed,
     )

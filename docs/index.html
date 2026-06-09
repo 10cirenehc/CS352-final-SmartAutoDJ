@@ -1,145 +1,529 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SmartAutoDJ — Structure-Aware Automatic DJ Transitions</title>
-  <meta name="description" content="A Music Perception course project: structure-aware automatic DJ transitions, evaluated across three tiers — baseline crossfade, beat-aligned, and AI-enhanced." />
-  <link rel="stylesheet" href="css/style.css" />
-</head>
-<body>
-  <nav class="topnav">
-    <a class="brand" href="#top">SmartAutoDJ</a>
-    <div class="navlinks">
-      <a href="#gallery">Demos</a>
-      <a href="#topics">Course topics</a>
-      <a href="#survey">Survey</a>
-      <a href="#live">Live</a>
-      <a href="https://github.com/10cirenehc/CS352-final-SmartAutoDJ" target="_blank" rel="noopener">GitHub</a>
-    </div>
-  </nav>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="SmartAutoDJ: structure-aware automatic DJ transitions. A CS 352 Music Perception final project at Northwestern University (Prof. Jason Smith, Spring 2026) — analyze, align, reshape, and render musical transitions across three tiers."
+    />
+    <title>SmartAutoDJ | Structure-Aware Automatic DJ Transitions</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <canvas id="signal-canvas" aria-hidden="true"></canvas>
 
-  <header id="top" class="hero">
-    <h1>SmartAutoDJ</h1>
-    <p class="tagline">Structure-aware automatic DJ transitions.</p>
-    <p class="lede">
-      Given two songs, SmartAutoDJ analyzes tempo, beats, downbeats, and song structure,
-      then builds a short transition that is musically smarter than a plain crossfade —
-      optionally layering in an AI-generated bridge. Everything below is benchmarked across
-      <strong>three tiers</strong> so you can hear what each piece buys us.
-    </p>
-    <ul class="tiers-legend">
-      <li class="tier1"><span class="dot"></span> Tier 1 — Baseline crossfade</li>
-      <li class="tier2"><span class="dot"></span> Tier 2 — Beat-aligned</li>
-      <li class="tier3"><span class="dot"></span> Tier 3 — AI-enhanced bridge</li>
-    </ul>
-  </header>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="SmartAutoDJ home">
+        <span class="brand-mark">SA</span>
+        <span>SmartAutoDJ</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#about">About</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#tiers">Tiers</a>
+        <a href="#demos">Demos</a>
+        <a href="#eval">Evaluation</a>
+        <a href="#how">How it works</a>
+        <a href="#topics">Topics</a>
+        <a href="https://github.com/10cirenehc/CS352-final-SmartAutoDJ" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </header>
 
-  <main>
-    <section id="gallery">
-      <h2>Demos</h2>
-      <p class="section-intro">
-        Each card plays the same song pair transitioned three ways. Audio is trimmed to a
-        window around the transition so you hear the handoff immediately. Metrics and plots
-        are pulled straight from the pipeline's output sidecars.
-      </p>
-      <div id="gallery-cards" class="cards">
-        <p class="loading">Loading demos…</p>
-      </div>
-    </section>
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">CS 352 · Music Perception · Northwestern University · Spring 2026</p>
+          <h1>SmartAutoDJ</h1>
+          <p class="hero-lede">
+            Structure-aware automatic DJ transitions that analyze two songs,
+            align musical boundaries, reshape the overlap, and render a cleaner,
+            more musical handoff than a plain crossfade — with an optional
+            AI-generated bridge.
+          </p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#demos">Listen to demos</a>
+            <a class="ghost-action" href="#pipeline">Explore the pipeline</a>
+          </div>
+        </div>
+      </section>
 
-    <section id="topics">
-      <h2>Course topics, where they show up</h2>
-      <p class="section-intro">
-        SmartAutoDJ is a Music Perception final project. Each module demonstrates a course concept:
-      </p>
-      <table class="topic-table">
-        <thead>
-          <tr><th>Course topic</th><th>Where it shows up here</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Loudness &amp; Amplitude</td>
-            <td>Loudness-continuity metric (max dB jump across the transition) and the volume-fade curves in each <em>fades</em> plot.</td>
-          </tr>
-          <tr>
-            <td>Fourier Transforms &amp; Spectrograms</td>
-            <td>The per-tier <em>spectrogram</em> images of each rendered transition.</td>
-          </tr>
-          <tr>
-            <td>Convolution &amp; Filtering (EQ)</td>
-            <td>Equal-power bass-swap EQ in the beat-aligned tiers — visible as the EQ curves in the <em>fades</em> plot.</td>
-          </tr>
-          <tr>
-            <td>Self-Similarity &amp; Structure</td>
-            <td>Fused RMS/MFCC/chroma/onset novelty drives cue-point selection — see the <em>structure</em> plot (tiers 2 &amp; 3).</td>
-          </tr>
-          <tr>
-            <td>MFCCs &amp; Chromagrams / Pitch</td>
-            <td>Krumhansl key estimation and harmonic compatibility — the key labels shown on each demo card.</td>
-          </tr>
-          <tr>
-            <td>Deep Learning &amp; Embeddings</td>
-            <td>Neural beat tracking (beat_this) and the tier-3 AI bridge generated with MusicGen — its text prompt is shown on the tier-3 block.</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
+      <section id="about" class="about section-band" aria-label="About this project">
+        <div class="section-heading">
+          <p class="eyebrow">About the project</p>
+          <h2>Structure-aware transitions, built and measured in three tiers.</h2>
+        </div>
 
-    <section id="survey">
-      <h2>Listening survey</h2>
-      <p class="section-intro">
-        Help us evaluate the transitions: rate each tier on smoothness, rhythmic alignment,
-        creativity, and overall preference. Responses feed the project's subjective evaluation.
-      </p>
-      <div id="survey-embed">
-        <p class="loading">Loading survey…</p>
-      </div>
-    </section>
+        <div class="about-credits">
+          <div>
+            <span class="credit-label">Team</span>
+            <p class="credit-names">Eric Shang Nan Chen · Yindi Zhao · Kefan Yu</p>
+          </div>
+          <div>
+            <span class="credit-label">Contact</span>
+            <p><a href="mailto:ericchen@u.northwestern.edu">ericchen@u.northwestern.edu</a></p>
+          </div>
+          <div>
+            <span class="credit-label">Course</span>
+            <p>CS 352 · Music Perception · Spring 2026</p>
+          </div>
+          <div>
+            <span class="credit-label">Instructor</span>
+            <p>Prof. Jason Smith · Northwestern University</p>
+          </div>
+        </div>
 
-    <section id="live">
-      <h2>Live generation <span class="badge soon">coming soon</span></h2>
-      <p class="section-intro">
-        Generation currently happens offline (Colab / MusicGen) and the clips are baked into
-        the demos above. A future <a href="https://huggingface.co/spaces" target="_blank" rel="noopener">Hugging Face Space</a>
-        could host an always-on Gradio app to generate transitions live in the browser. When
-        that exists, it embeds right here:
-      </p>
-      <!-- Drop-in hook: uncomment and set the Space URL to enable live generation.
-      <iframe src="https://YOUR-USERNAME-smartautodj.hf.space" width="100%" height="700"
-              title="SmartAutoDJ live generation"></iframe>
-      -->
-      <button class="btn" disabled>Try live generation (coming soon)</button>
-    </section>
-  </main>
+        <div class="about-synopsis">
+          <p>
+            When a DJ transitions from one song to the next, the goal is for the
+            audience to barely notice the change. The energy should keep moving, the
+            beat should stay steady, and the two songs should feel like one continuous
+            piece of music. Most automatic DJ systems that are popular right now like
+            Spotify DJ, Apple Music AutoMix, or rekordbox, are mostly just crossfading.
+            While that method is incredibly reliable, the problem with it is that basic
+            crossfade does not really understand the music. It is not aware where the
+            beats are, so the two songs can drift out of sync. It also does not know the
+            structure of the songs, so it might bring in song B during a quiet intro
+            while song A is still at a high-energy chorus, which drops the overall
+            energy in a playlist. Since both songs are also playing loudly in the middle
+            of the fade, the bass can stack up and make the transition sound muddy. Our
+            goal was to build a transition system that analyzes both songs first,
+            including tempo, downbeats, loudness, structure, and musical key, then uses
+            that information to create a smoother handoff.
+          </p>
+          <p>
+            SmartAutoDJ takes two songs, A and B, and generates a short transition
+            between them. We built the system in three tiers, where each tier adds on
+            top of the previous one so we can compare what each feature improves.
+            <strong>Tier 1</strong> is the simple crossfade, which acts as our baseline
+            comparison. <strong>Tier 2</strong> is beat-aligned. It chooses a more
+            musical exit point in song A and entry point in song B, time-stretches song
+            B to match song A's tempo, aligns their downbeats to the same grid, and
+            reshapes the overlap using equal-power fades. It also includes a
+            bass-frequency swap so the low end does not double up. More technical
+            details are included in the <a href="#how">How it works</a> section.
+            <strong>Tier 3</strong> adds an optional AI-generated bridge, such as a
+            riser, drum fill, or sweep, using Meta's MusicGen-style model. While this
+            model is not the best performing model as it is from 2023, we chose it for
+            its open source nature (making it cost efficient) and the option to give it
+            a reference audio. This bridge is mixed on top of the Tier 2 transition to
+            add more creativity and energy to the transition. Importantly, the bridge is
+            only <em>additive</em>. It improves the transition but does not replace the
+            main algorithmic transition. Each part of the system also connects to course
+            concepts, including loudness and amplitude, Fourier analysis, convolution
+            and filtering, self-similarity and structure, and chroma/key estimation.
+          </p>
+          <p>
+            Beat and downbeat tracking uses <code>beat_this</code>, a neural
+            (transformer) tracker, by default; the rest of the analysis including tempo,
+            structure/novelty, key and all the fade/EQ/stretch DSP are built on
+            <code>librosa</code> and <code>scipy</code>. The generative model runs
+            separately on a cloud GPU through Modal because its dependencies conflict
+            with the analysis environment. Our test set is a small collection of
+            steady-tempo pop, EDM, and hip-hop clips with clear beats that we picked.
+            For every rendered transition, the system also saves a JSON file with the
+            detected tempos, beat and downbeat times, selected transition region, and
+            evaluation metrics. This makes the results easier to inspect and reproduce.
+            We evaluate each tier using three objective metrics measured only over the
+            transition region. The first is <strong>beat-alignment error</strong>, which
+            measures the average timing gap between matched beats from songs A and B. The
+            second is <strong>tempo-match quality</strong>, which measures how much the
+            BPM difference shrinks after stretching. The third is <strong>loudness
+            continuity</strong>, which measures the largest sudden dB jump across the
+            transition. Finally, we thoroughly evaluated the generated audio subjectively
+            through our own judgement.
+          </p>
+          <p>
+            The clearest objective improvement is in loudness continuity. For example,
+            on the Skrillex to Core transition, the naive crossfade creates a 12.6 dB
+            jump at the transition. The beat-aligned Tier 3 transition reduces this to
+            about 1.0 dB, so the volume moves much more smoothly instead of suddenly
+            lurching. Tempo matching also works well when the songs are close enough in
+            BPM. We cap stretching at about a 10% tempo difference so the audio does not
+            sound unnaturally warped. Beat-alignment error is harder to report cleanly.
+            It performs well for aligned transitions, but it is sensitive to cue
+            placement on full tracks and is not very meaningful for short quick-cut demos
+            where the songs barely overlap. Thus, we treat loudness continuity as our
+            main result and interpret the other metrics together with the plots. We found
+            that it was quite difficult to quantify how good a transition sounds,
+            especially with the AI generated clip, which may be mixed in, perfectly
+            aligned, but still sound weird. We also found that the MusicGen model has poor
+            prompt adherence and large variance between runs, which is documented in their
+            reporting as well. Thus, sometimes we had to judge multiple generations and
+            pick better ones.
+          </p>
+        </div>
+      </section>
 
-  <footer>
-    <div class="footcol">
-      <h3>Team</h3>
-      <ul>
-        <li>Eric Shang Nan Chen (ESC4970)</li>
-        <li>Yindi Zhao (YZV5448)</li>
-        <li>Kefan Yu</li>
-      </ul>
-    </div>
-    <div class="footcol">
-      <h3>Selected references</h3>
-      <ul>
-        <li><a href="https://arxiv.org/abs/2110.06525" target="_blank" rel="noopener">Automatic DJ Transitions with Differentiable Audio Effects &amp; GANs (2021)</a></li>
-        <li><a href="https://doi.org/10.48550/ARXIV.2306.05284" target="_blank" rel="noopener">MusicGen: Simple and Controllable Music Generation (2023)</a></li>
-        <li><a href="https://doi.org/10.1162/comj_a_00652" target="_blank" rel="noopener">Automatic Detection of Cue Points for DJ Mixing (2022)</a></li>
-      </ul>
-    </div>
-    <div class="footcol">
-      <h3>Built with</h3>
-      <ul>
-        <li><a href="https://librosa.org/" target="_blank" rel="noopener">librosa</a> · <a href="https://github.com/CPJKU/beat_this" target="_blank" rel="noopener">beat_this</a></li>
-        <li><a href="https://github.com/facebookresearch/audiocraft" target="_blank" rel="noopener">AudioCraft / MusicGen</a></li>
-        <li><a href="https://github.com/10cirenehc/CS352-final-SmartAutoDJ" target="_blank" rel="noopener">Source on GitHub</a></li>
-      </ul>
-    </div>
-  </footer>
+      <section class="overview section-band" aria-label="Project overview">
+        <div class="metric-row">
+          <article><strong>2</strong><span>Songs in, one handoff out</span></article>
+          <article><strong>3</strong><span>Comparable transition tiers</span></article>
+          <article><strong>4</strong><span>Featured quick-cut demos</span></article>
+          <article><strong>12</strong><span>Plots per render + JSON sidecar</span></article>
+        </div>
+      </section>
 
-  <script src="js/app.js"></script>
-</body>
+      <section id="pipeline" class="pipeline section-band">
+        <div class="section-heading">
+          <p class="eyebrow">How it works</p>
+          <h2>From two songs to one musical handoff.</h2>
+        </div>
+
+        <div class="pipeline-board">
+          <button class="stage is-active" data-stage="analyze">
+            <span class="stage-index">01</span>
+            <span class="stage-title">Analyze</span>
+            <span class="stage-copy">BPM, beats, downbeats, key, and sections.</span>
+          </button>
+          <button class="stage" data-stage="align">
+            <span class="stage-index">02</span>
+            <span class="stage-title">Align</span>
+            <span class="stage-copy">Choose compatible regions and anchors.</span>
+          </button>
+          <button class="stage" data-stage="shape">
+            <span class="stage-index">03</span>
+            <span class="stage-title">Shape</span>
+            <span class="stage-copy">Stretch, fade, and swap bass energy.</span>
+          </button>
+          <button class="stage" data-stage="bridge">
+            <span class="stage-index">04</span>
+            <span class="stage-title">Bridge</span>
+            <span class="stage-copy">Add risers, fills, or stabs for tier 3.</span>
+          </button>
+          <button class="stage" data-stage="render">
+            <span class="stage-index">05</span>
+            <span class="stage-title">Render</span>
+            <span class="stage-copy">Write WAV, JSON, metrics, and plots.</span>
+          </button>
+        </div>
+
+        <div class="stage-detail" aria-live="polite">
+          <div>
+            <p class="eyebrow" id="stage-kicker">Stage 01</p>
+            <h3 id="stage-title">Analyze musical structure</h3>
+            <p id="stage-body">
+              SmartAutoDJ extracts tempo, beat grids, downbeats, key, and section
+              cues for both tracks. The pipeline prefers the beat_this neural
+              tracker and falls back to librosa so the demo stays reproducible.
+            </p>
+          </div>
+          <div class="stage-visual" id="stage-visual" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+      </section>
+
+      <section id="tiers" class="tiers section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Three comparison tiers</p>
+          <h2>Each tier adds one layer of musical intelligence.</h2>
+        </div>
+
+        <div class="tier-grid">
+          <article class="tier-card">
+            <span class="tier-number">Tier 1</span>
+            <h3>Baseline crossfade</h3>
+            <p>A direct linear overlap from the tail of song A into the head of
+              song B — the control condition for every comparison.</p>
+            <ul>
+              <li>No region selection</li>
+              <li>No tempo matching</li>
+              <li>Plain full-band fades</li>
+            </ul>
+          </article>
+          <article class="tier-card feature">
+            <span class="tier-number">Tier 2</span>
+            <h3>Beat-aligned transition</h3>
+            <p>Selects a musically meaningful overlap, stretches B toward A's
+              tempo, aligns downbeats, and uses equal-power fades with bass-swap
+              filtering.</p>
+            <ul>
+              <li>Downbeat-aware overlap</li>
+              <li>Tempo stretch ratio</li>
+              <li>Low-frequency handoff</li>
+            </ul>
+          </article>
+          <article class="tier-card">
+            <span class="tier-number">Tier 3</span>
+            <h3>AI-enhanced bridge</h3>
+            <p>Adds a short riser, fill, stab, or pad under the tier-2 mix. The
+              featured demos below are tier-3 <em>quick cuts</em> — a punchy
+              fade-out, an effect over the seam, then B drops on the downbeat.</p>
+            <ul>
+              <li>Trimmed to the seam</li>
+              <li>Normalized under the mix</li>
+              <li>Genre-aware effect</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="demos" class="demos section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Demo audio</p>
+          <h2>Four quick-cut transitions, fully instrumented.</h2>
+        </div>
+        <p class="section-intro">
+          Each demo is a <code>--style cut</code> tier-3 transition between the same
+          two songs, rendered with a different seam effect. Play a waveform and the
+          beat/downbeat markers light up as the shaded transition seam goes by;
+          every plot and metric is pulled straight from the render's JSON sidecar.
+        </p>
+        <div id="demo-gallery" class="demo-gallery">
+          <p class="loading">Loading demos…</p>
+        </div>
+      </section>
+
+      <section id="eval" class="eval section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Objective evaluation</p>
+          <h2>What each tier buys.</h2>
+        </div>
+        <p class="section-intro">
+          Each pair, rendered three ways and measured over the transition:
+          <strong>Tier 1</strong> naive crossfade, <strong>Tier 2</strong>
+          beat-aligned, <strong>Tier 3</strong> + AI bridge. The clearest win is
+          <em>loudness continuity</em> — the beat-aligned tiers cut the abrupt level
+          jump at the handoff (dramatically for Skrillex → Core, 12.6 → 1.0 dB) — and
+          the tempo gap closes when the BPMs are close enough to time-stretch.
+          Beat-alignment error on full tracks is sensitive to cue placement.
+        </p>
+        <div id="eval-gallery" class="eval-gallery">
+          <p class="loading">Loading comparisons…</p>
+        </div>
+      </section>
+
+      <section id="how" class="how section-band" aria-label="How it works in detail">
+        <div class="section-heading">
+          <p class="eyebrow">Under the hood</p>
+          <h2>How it works, in detail.</h2>
+        </div>
+        <p class="section-intro">
+          The four mechanisms that make a SmartAutoDJ transition more than a
+          crossfade. Expand any card for the signal-processing specifics.
+        </p>
+
+        <div class="how-grid">
+          <details class="how-card" open>
+            <summary>
+              <span class="how-tag">Cue points</span>
+              How we pick <em>where</em> to transition
+            </summary>
+            <div class="how-body">
+              <p>
+                We do not simply overlap the end of song A with the start of song B.
+                Instead, both transition points have to land on
+                <strong>downbeats</strong>, and more specifically on a
+                <em>phrase grid</em>, meaning every fourth downbeat. This is because real
+                musical sections usually begin on phrase boundaries, not randomly in the
+                middle of a bar.
+              </p>
+              <p>
+                For choosing the entry point in song B, our default energy-based method
+                walks through this phrase grid and finds the first downbeat where the next
+                two bars have energy above about 60% of B's peak phrase energy. In other
+                words, it looks for the first point where song B has actually "kicked in."
+                This helps avoid transitions that drop into a quiet or empty intro.
+              </p>
+              <p>
+                We also built a second, more experimental method that scores each
+                candidate downbeat using a weighted combination:
+              </p>
+              <p class="how-formula"><code>0.5 × energy + 0.3 × novelty + 0.2 × harmonic compatibility</code></p>
+              <p>
+                The <strong>novelty</strong> term tries to detect structural changes in the
+                music. To do this, we compute frame-to-frame changes, or flux, across four
+                feature streams: MFCCs for timbre, chroma for harmony, onset strength for
+                rhythm, and RMS for loudness. We standardize these streams, average them
+                together, and treat large spikes as possible section boundaries.
+              </p>
+              <p>
+                The <strong>harmonic compatibility</strong> term estimates the key of each
+                song using a Krumhansl-Schmuckler chroma correlation. Then it scores how
+                well song A and song B fit together using the Camelot wheel. Same key gets
+                the highest score, relative major or minor gets a slightly lower score, and
+                the score decreases as the keys move farther apart on the circle of fifths.
+              </p>
+              <p>
+                For choosing the exit point in song A, we take the latest downbeat that
+                still leaves enough room for the full overlap. If there is a section
+                boundary nearby, we nudge the exit point toward it. We also prefer bars
+                that are still energetic, so song A exits at a strong musical moment instead
+                of fading out weakly.
+              </p>
+            </div>
+          </details>
+
+          <details class="how-card">
+            <summary>
+              <span class="how-tag">EQ fade</span>
+              Equal-power fade and bass swap
+            </summary>
+            <div class="how-body">
+              <p>
+                The overlap is not just a simple linear fade. We split each song into a
+                <em>low band</em> and a <em>high band</em> using a fourth-order Butterworth
+                filter at 200 Hz. We use zero-phase filtering with <code>sosfiltfilt</code>,
+                and we compute the high band as the original signal minus the low band, so
+                the two bands add back to the original signal exactly.
+              </p>
+              <p>
+                The high bands are mixed using an <strong>equal-power crossfade</strong>.
+                Song A is multiplied by <code>cos(t · π/2)</code> and song B is multiplied
+                by <code>sin(t · π/2)</code>, where <code>t</code> goes from 0 to 1 across
+                the transition. Since <code>cos² + sin² = 1</code>, the total power stays
+                much more constant. This helps avoid the dip in the middle that often
+                happens with a basic linear fade.
+              </p>
+              <p>
+                The low bands use a separate <strong>bass swap</strong>. Instead of letting
+                both basslines play through the whole overlap, song A's bass holds for the
+                first part, then hands off to song B's bass over a short window in the
+                middle. This uses the same equal-power idea. The goal is that there is
+                basically only one bassline dominating at any moment, so the kick drums do
+                not stack on top of each other and make the mix muddy.
+              </p>
+              <p>
+                An earlier version faded both basslines down near the midpoint, but that
+                created an obvious bass dropout. The equal-power bass handoff fixes this by
+                preserving low-frequency energy while still avoiding bass buildup.
+              </p>
+            </div>
+          </details>
+
+          <details class="how-card">
+            <summary>
+              <span class="how-tag">Swoosh</span>
+              The sweeping swoosh effect
+            </summary>
+            <div class="how-body">
+              <p>
+                For quick-cut transitions, we add a "swoosh" effect that builds tension
+                right before the drop. The effect starts with white noise, then passes it
+                through a <strong>swept resonant band-pass filter</strong>. The center
+                frequency rises exponentially from about 200 Hz to about 12 kHz over the
+                length of the effect.
+              </p>
+              <p>
+                The filter is a <strong>TPT</strong>, or topology-preserving transform,
+                state-variable filter based on the Zavalishin design. In this filter, the
+                cutoff is prewarped using <code>g = tan(π · fc / sr)</code> and the two
+                integrators are updated using a trapezoidal method.
+              </p>
+              <p>
+                This matters because the ordinary Chamberlin state-variable filter can
+                become unstable above about one-sixth of the sample rate, which is around
+                7 kHz at 44.1 kHz. That is a problem because our swoosh needs to sweep into
+                the high-frequency range. The TPT version stays stable much closer to
+                Nyquist, so the resonant peak can safely rise up to 12 kHz.
+              </p>
+              <p>
+                We set the resonance using <code>k = 1/Q</code> with <code>Q = 8</code>,
+                which creates a narrow, vocal-like peak that is easy to hear as it rises. We
+                also apply a rising amplitude envelope, <code>t^1.5</code>, so the swoosh
+                grows louder as it climbs. After that, we peak-normalize the effect and
+                loudness-match it to about 3 dB below the outgoing track's tail.
+              </p>
+              <p>
+                Finally, the first bar of song B crossfades in over the tail of the swoosh
+                using another equal-power crossfade. This lets song B arrive on its downbeat
+                without creating a hard click.
+              </p>
+            </div>
+          </details>
+
+          <details class="how-card">
+            <summary>
+              <span class="how-tag">AI bridge</span>
+              How the AI bridge is mixed in
+            </summary>
+            <div class="how-body">
+              <p>
+                For Tier 3, we first create a <em>boundary reference</em>, which is a short
+                equal-power crossfade from the tail of song A into the head of song B. We
+                send this reference, along with an auto-generated text prompt containing the
+                mix BPM, key, and duration, to a MusicGen-style model running on a cloud GPU
+                through Modal. The model then returns a generated clip that is conditioned on
+                the actual sound of the two songs.
+              </p>
+              <p>
+                After the clip comes back, we process it locally. First, we beat-align it to
+                the mix tempo, with octave-folding guards so that a wrong tempo estimate does
+                not stretch it in an extreme way. Second, if the clip is supposed to be a
+                riser or sweep, we <strong>"riserize"</strong> it in post-processing. The
+                model does not always create a clean rising sound by itself, so we force that
+                effect by crossfading from a dull low-passed version of the clip into the
+                brighter original version, <code>low · (1 − t) + clip · t</code>. This makes
+                the bridge open from muffled to bright, so it peaks at the very end and lands
+                right on the drop. Third, we trim or pad the clip to exactly match the seam
+                length and peak-normalize it to about −9 dBFS.
+              </p>
+              <p>
+                The AI bridge is always mixed as an extra layer. It never replaces the main
+                transition. We loudness-match it to about 3 dB below the main tracks,
+                soft-limit its peaks using a smooth <code>tanh</code> curve, and duck the
+                songs by about 6 dB underneath it where the bridge is loudest. We also carve
+                out some space in the songs in the same frequency bands where the bridge is
+                active, so the mix does not become muddy.
+              </p>
+              <p>
+                At the end, a final headroom check scales the whole output down if it would
+                ever exceed 0.99 full scale. This keeps the transition from clipping.
+              </p>
+            </div>
+          </details>
+
+          <details class="how-card">
+            <summary>
+              <span class="how-tag">Genre</span>
+              How genre is detected and used
+            </summary>
+            <div class="how-body">
+              <p>
+                SmartAutoDJ also detects the genre of each song and uses it to guide the
+                transition. We use <strong>distilHuBERT</strong>, a smaller and faster
+                version of the HuBERT audio transformer, with a checkpoint already fine-tuned
+                on GTZAN for music genre classification. To keep it efficient, we take about
+                30 seconds from the middle of each song, convert it to 16 kHz mono, and run
+                the model on the CPU. The model gives a probability for each genre, and we
+                save both the top genre label and the full distribution.
+              </p>
+              <p>
+                After detecting the genres, we map them into broader <strong>style
+                families</strong> like dance, urban, dub, band, smooth, or ambient. These
+                style families control settings such as overlap length, allowed tempo-stretch
+                range, whether to use bass swap, and which cue-point method to use. Genre also
+                helps choose the AI bridge style: dance maps to a riser, hip-hop to a
+                drum-and-stab fill, reggae to a dub siren, and ambient to a pad wash. The
+                MusicGen prompt is filled with the detected BPM, key, and transition length,
+                usually asking for an isolated effect instead of a full melody.
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="topics" class="topics section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Course concepts</p>
+          <h2>Where Music Perception shows up.</h2>
+        </div>
+        <div class="topic-grid" id="topic-grid"></div>
+      </section>
+
+    </main>
+
+    <footer class="site-footer">
+      <span>SmartAutoDJ — Eric Chen · Yindi Zhao · Kefan Yu</span>
+      <span>CS 352 Music Perception · Prof. Jason Smith · Northwestern University · Spring 2026</span>
+      <span><a href="mailto:ericchen@u.northwestern.edu">ericchen@u.northwestern.edu</a></span>
+    </footer>
+
+    <!-- WaveSurfer v7 (pinned) + Regions plugin: interactive waveform playhead. -->
+    <script src="https://unpkg.com/wavesurfer.js@7.8.6/dist/wavesurfer.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7.8.6/dist/plugins/regions.min.js"></script>
+    <script src="js/beatgrid.js"></script>
+    <script src="js/app.js"></script>
+  </body>
 </html>

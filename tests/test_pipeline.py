@@ -189,8 +189,9 @@ def test_run_tier_produces_outputs(click_tracks, tmp_path, tier):
     )
     assert os.path.exists(result["wav"])
     assert os.path.exists(result["sidecar"])
-    # 4 base plots; tiers 2/3 add the structure/cue-rationale plot.
-    assert len(result["plots"]) == (4 if tier == 1 else 5)
+    # 9 track-level/continuity base plots; tier >=2 adds 3 structure/EQ visuals;
+    # tier 3 adds the mel-spectrogram bridge plot (see viz.render_all).
+    assert len(result["plots"]) == (9 if tier == 1 else 12 if tier == 2 else 13)
     for p in result["plots"]:
         assert os.path.exists(p)
 

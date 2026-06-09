@@ -119,6 +119,10 @@ class TransitionPlan:
     anchor_downbeats_a: np.ndarray = field(default_factory=lambda: np.array([]))
     anchor_downbeats_b: np.ndarray = field(default_factory=lambda: np.array([]))
     stretch_ratio: float = 1.0
+    # How the overlap is rendered: "blend" = symmetric crossfade (A and B play
+    # together over the whole region); "cut" = sequential quick-cut (fade A out,
+    # effect over the seam, then drop B in on the downbeat). See mix.mix_transition.
+    shape: str = "blend"
     fade_shape: str = "equal_power"
     fade_sharpness: float = 1.0  # >1 = quicker, less gradual crossfade
     eq_params: dict = field(default_factory=dict)
@@ -138,6 +142,7 @@ class TransitionPlan:
             "anchor_downbeats_a": [round(float(t), 4) for t in self.anchor_downbeats_a],
             "anchor_downbeats_b": [round(float(t), 4) for t in self.anchor_downbeats_b],
             "stretch_ratio": round(float(self.stretch_ratio), 5),
+            "shape": self.shape,
             "fade_shape": self.fade_shape,
             "fade_sharpness": round(float(self.fade_sharpness), 3),
             "eq_params": self.eq_params,

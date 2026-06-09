@@ -274,6 +274,82 @@ Libraries: librosa (https://librosa.org/) · all-in-one (https://github.com/mir-
     subtle accent only on `--generate`** (a synth layer on those reads as a gimmick — real DJs
     use track-driven moves there). The chosen `element` lands in the sidecar (`plan.bridge`).
     `--bridge {riser,drum_fill,siren,pad,cymbal}` overrides the procedural kind.
+  - **Quick-cut transition shape (`--style cut`):** a second render *shape* alongside the
+    long beat-matched blend, for transitions that don't muddily overlap. The blend sums A+B
+    over the whole overlap; the **cut** is *sequential* — `align.select_transition_region`
+    (`shape="cut"`) anchors on B's drop downbeat and builds backward: A's tail fades out fast
+    (`transition.cut_fade_out`), a continuous **riser** leads over the ~7-bar seam
+    (`cut_bridge_envelope`, summed not ducked), then a swoosh leads the last ~2 bars while
+    **B crossfades in** on the downbeat (see next bullet). `TransitionPlan.shape` + a manual-only
+    `STYLE_PRESETS["cut"]` carry it (`mix._mix_cut` renders it); the seam is soft-limited
+    locally so the effect peak doesn't turn the whole song down. Tier-2 cut = fade + woosh
+    (no riser); tier-3 cut = + the riser. Knobs to tune by ear: `cut_fade_out` `fade_frac`,
+    `--cut-sweep-bars`, `--cut-xfade-bars`, `--cut-woosh`, `--bridge-gain-db`. Note:
+    beat-alignment-error is near-meaningless for the cut (A/B barely overlap) — the meaningful
+    checks are "drop lands on a downbeat" (true by construction) + loudness continuity.
+  - **Riserize the generated bridge (`generative.riserize`):** MusicGen doesn't reliably make
+    a *riser* — the text "rising" isn't honored and MusicGen-Style's audio conditioning pulls
+    the clip toward the songs' static timbre. Since a riser is a deterministic DSP effect, we
+    force it in post: a model-agnostic **EQ filter-open** on the *real* clip (dull→full via
+    `low*(1-t)+clip*t`, reusing `_filt`), peaking on the **last sample** so it resolves on the
+    drop. It sounds natural because it's the actual audio brightening, not a synthetic tone (an
+    optional synthetic sine uplifter exists but is **off by default** — it read as artificial).
+    Applied to the AI clip in `resolve_bridge` **after** length-fitting to the seam (riserizing
+    before the `clip[:n]` trim would chop off the climax). Riser generation uses a looser
+    `eval_q=1` so MusicGen is freer to sweep. `--no-riserize` disables. Only rising effects are
+    riserized (riser/sweep/buildup), never hits/siren/pad. Sidecar records `plan.bridge.riserized`.
+  - **Smooth the cut's END — swoosh + smoosh (`mix._mix_cut`):** the drop into B used to be a
+    hard concatenation (riser stops dead, B starts) — abrupt. Fixes: (1) a real **swoosh** —
+    a swept-resonant-noise whoosh (`transition.make_whoosh` over `transition.swept_bandpass_svf`,
+    a **TPT/Zavalishin state-variable filter** with a high-resonance band-pass whose center
+    sweeps exp ~200 Hz→12 kHz; TPT stays stable past sr/6 where the naive SVF blows up — that's
+    why it can actually sweep *high*) layered over the last `--cut-sweep-bars` of the seam,
+    climbing into the drop; a fixed 2-band gain crossfade (the old `highpass`/`lowpass` modes,
+    still available) has no moving resonance and can't swoosh. (2) **B crossfades in** over
+    `--cut-xfade-bars` (the 2-bar "smoosh"), entering on a downbeat, overlapping the swoosh.
+    `--cut-woosh {noise,bandpass,highpass,lowpass,none}`: `noise` (default), `bandpass` (swept
+    resonant band-pass on B's own entrance), or the gentle 2-band modes. Defaults: `cut` seam
+    **7 bars**, swoosh **2 bars**, smoosh **2 bars**, A fades out over **0.65** of the seam
+    (`--cut-fade-frac`). (Reverted an earlier genre-aware effect
+    mapping — GTZAN can't tell EDM from hip-hop — so `cut` is always a riser; `--effect`
+    overrides.)
+  - **Visualization suite + interactive site:** `viz.py` gained DJ/MIR-grade plots beyond the
+    original waveform/spectrogram/fade/structure set — a **Camelot key wheel** (`plot_key_wheel`,
+    A→B arc colored by `harmonic_compatibility`), **beat-synchronous self-similarity matrices**
+    (`plot_ssm_pair`, recomputed from chroma — deliberately not stored in the sidecar), an
+    **arrangement ribbon**, a **loudness-continuity curve** (shares the new
+    `evaluate.short_term_loudness_db` helper with the metric so they can't drift), a
+    **beat-alignment scatter**, a **mel-spectrogram + bridge region**, a **bass-swap low-freq
+    handoff**, and a **genre-probability** bar (distilHuBERT). A cross-tier **comparison bar chart**
+    (`plot_tier_comparison`) is built by `scripts/build_site_assets.py` (the only place that sees
+    all 3 tiers) — the "what each tier buys" money chart. Every plot is wired
+    `render_all` → `PLOT_POLICY` → `manifest.json` → `docs/js/app.js` (`PLOT_LABELS` + order); a
+    plot is silently dropped from the site unless all three are updated. The site (`docs/`) also
+    gained an **interactive WaveSurfer.js v7 player** (playhead, beat/downbeat ticks that light up,
+    a glowing overlap region; falls back to `<audio>` if WebAudio is unavailable) and a canvas
+    **beat-grid "snap"** animation (`docs/js/beatgrid.js`) driven by `bpm_a`/`bpm_b`/`stretch_ratio`
+    — it honestly shows grids locking when B was stretched, or staying offset when the tempo gap
+    exceeded tolerance. `build_site_assets.py` emits a per-demo `viz` block mapping the three
+    different analysis clocks (A 1:1, B stretched, output) onto the trimmed MP3's clip clock.
+  - **Site refresh — cut-demo gallery in the main-branch visual style:** the featured gallery is
+    **five `--style cut` quick-cut demos** — four procedural (`victory_lap__ultimate` hits/riser,
+    `skrillex__core` riff/riser) that `scripts/render_cut_demos.py` regenerates byte-identically to
+    the hand-saved `outputs/<id>.wav` (each gets a sidecar + full plot suite named `outputs/<id>.json`,
+    `<id>_*.png`), plus one **AI-generated** (`sao_paulo__put4__tier3`, `--generate` disco riser,
+    `source: ai-clip`) packaged from its existing CLI render (NOT re-rendered — the `--generate`/
+    riserize path isn't byte-reproducible). `build_site_assets.py` packages them as a manifest
+    `demos[]` array; `build_demo(cfg)` reads title/effect/shape from the sidecar `demo` tag when
+    present (render_cut_demos.py) else derives them from `cfg` + `plan.bridge.element`/`plan.shape`
+    (so tag-less CLI renders like São Paulo work). `slim_metrics` is None-safe (beat-align is
+    near-meaningless for cuts). An **Evaluation** section (`manifest.comparisons[]`,
+    `build_comparison`) shows a tier-1/2/3 bar chart + metric table per pair (`EVAL_PAIRS`, rendered
+    `--style auto` by render_cut_demos.py) — loudness continuity is the clean win; beat-align is
+    cue-sensitive on full tracks (stated on the page). The `docs/` frontend adopts the
+    **`origin/main:website/` design system** (animated signal canvas, glassmorphic dark theme, hero +
+    transition-plan console, interactive 5-stage pipeline board, tier explainer) while keeping the
+    data-driven functionality (WaveSurfer player, beat ticks, glowing overlap, per-demo beat-grid snap,
+    metric cards, collapsible 12-plot gallery, course topics). The old Google-survey + deploy sections
+    were removed. NOTE: the old `song_A__song_B` *source* audio is gone (only `song_B.mp3` in `data/`).
   - **Still TODO:** listening survey; run on a real-song library; tune novelty weights; tune the
     per-genre preset numbers + element prompts by ear; **track-driven moves** (echo/delay throw on
     the outgoing tail, acapella bridge, hard cut) as a follow-up to the additive generated layer.

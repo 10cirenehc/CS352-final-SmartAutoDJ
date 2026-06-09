@@ -56,6 +56,8 @@ def make_placeholder_bridge(
         y = _pad(n, sr, rng)
     elif kind == "cymbal":
         y = _cymbal(n, sr, rng)
+    elif kind == "riff":
+        y = _riff(n, sr, bpm, rng)
     else:  # default / "riser"
         y = _riser(n, sr, rng)
     return peak_normalize(y, target_dbfs=gain_dbfs)
@@ -112,6 +114,46 @@ def beat_align_clip(clip: np.ndarray, sr: int, target_bpm: float) -> tuple[np.nd
     return apply_stretch(clip, rate, sr=sr), tempo
 
 
+def riserize(
+    clip: np.ndarray, sr: int, uplifter_gain: float = 0.0, low_cut: float = 400.0
+) -> np.ndarray:
+    """Impose a guaranteed rising trajectory on ``clip``, peaking at the last sample.
+
+    Music models (MusicGen) don't reliably produce a *riser* — the text "rising" is
+    not honored and the style conditioning pulls the output toward the songs' static
+    timbre. A riser, though, is a deterministic DSP effect, so we force it in post
+    (model-agnostic). The peak lands on the **last sample**, so when this clip fills
+    the cut seam it resolves exactly on the drop.
+
+    The rise is a pure **EQ filter sweep on the real clip** — crossfade a dull
+    low-passed copy into the full-range clip (``low*(1-t) + clip*t``), i.e. a
+    low-pass cutoff opening up: the classic "filter opening" riser (Convolution &
+    Filtering), and it sounds natural because it's the actual audio brightening, not
+    a synthetic tone. ``uplifter_gain > 0`` optionally adds a faint synthetic sine
+    glide (≈150 Hz -> 4 kHz) for an extra push, but it reads as artificial, so it is
+    **off by default**.
+
+    The *amplitude* swell is intentionally left to the mix layer
+    (``transition.cut_bridge_envelope``) — this function only shapes spectrum.
+    """
+    clip = np.asarray(clip, dtype=np.float32)
+    n = clip.size
+    if n <= 1:
+        return clip
+    t = np.linspace(0.0, 1.0, n).astype(np.float32)
+    # Filter opening: dull (low-passed) at the start -> full range by the end.
+    low = _filt(clip, sr, low_cut, "low")
+    bright = peak_normalize((low * (1.0 - t) + clip * t).astype(np.float32), target_dbfs=-1.0)
+    if uplifter_gain <= 0.0:
+        return bright
+    # Optional synthetic uplifter (off by default — sounds artificial).
+    f0, f1 = 150.0, 4000.0
+    freq = f0 * (f1 / f0) ** t  # exponential pitch glide upward
+    phase = np.cumsum(2.0 * np.pi * freq / sr)
+    sweep = (np.sin(phase).astype(np.float32) * (t ** 2)) * float(uplifter_gain)
+    return (bright + sweep).astype(np.float32)
+
+
 # --------------------------------------------------------------------------- #
 # Real AI clip: resolve / load (with procedural fallback)
 # --------------------------------------------------------------------------- #
@@ -123,19 +165,32 @@ def resolve_bridge(
     kind: str = "riser",
     seed: int = 0,
     gain_dbfs: float = -9.0,
+    riserize_clip: bool = True,
 ) -> tuple[np.ndarray, dict]:
     """Return ``(bridge_samples, meta)`` for the tier-3 layer.
 
     If ``clip_path`` exists, load that real (MusicGen-Style) clip; otherwise fall
     back to the procedural stand-in. ``meta`` records the source for the sidecar.
+    ``riserize_clip`` imposes a guaranteed rise on the AI clip (the procedural
+    ``_riser`` already rises, so it's left untouched).
     """
     if clip_path and os.path.exists(clip_path):
         clip, _ = load_audio(clip_path, sr=sr)
         # MusicGen ignores precise tempo, so lock the clip's pulse to the mix tempo
         # before length-matching — otherwise its beats drift off the transition grid.
         clip, clip_bpm = beat_align_clip(clip, sr, bpm)
+        riserized = False
+        if riserize_clip:
+            # Length-fit to the seam FIRST, then riserize over that exact window, so
+            # the riser's peak lands on the last sample (= the drop). Riserizing
+            # before the trim would let prepare_clip's clip[:n] chop off the climax.
+            n = int(round(overlap_sec * sr))
+            clip = clip[:n] if clip.size >= n else np.pad(clip, (0, n - clip.size))
+            clip = riserize(clip, sr)
+            riserized = True
         bridge = prepare_clip(clip, sr, overlap_sec, gain_dbfs=gain_dbfs)
-        return bridge, {"source": "ai-clip", "clip_path": clip_path, "clip_bpm": clip_bpm}
+        return bridge, {"source": "ai-clip", "clip_path": clip_path,
+                        "clip_bpm": clip_bpm, "riserized": riserized}
     raw = make_placeholder_bridge(kind, overlap_sec, sr=sr, bpm=bpm, seed=seed,
                                   gain_dbfs=gain_dbfs)
     bridge = prepare_clip(raw, sr, overlap_sec, gain_dbfs=gain_dbfs)
@@ -150,27 +205,42 @@ DEFAULT_BRIDGE_TEMPLATE = (
 )
 
 
-def build_bridge_prompt(a, b, overlap_sec: float, template: str = DEFAULT_BRIDGE_TEMPLATE) -> str:
+def build_bridge_prompt(
+    a, b, overlap_sec: float, template: str = DEFAULT_BRIDGE_TEMPLATE, melodic: bool = False
+) -> str:
     """Fill a MusicGen text ``template`` with this transition's tempo/key/duration.
 
     ``template`` uses ``{bpm}``/``{key}``/``{dur}`` placeholders (see
     :data:`genre.BRIDGE_SPECS`). Encoding tempo, key and duration makes the
     generated bridge match the mix — the "text-to-audio that takes song structure
-    into account" the project wants.
+    into account" the project wants. ``melodic=True`` wraps it as an actual tonal
+    riff/run in the tracks' instruments (not the "no melody" isolated-FX framing).
     """
     # The mix plays at A's tempo (B is stretched onto it), so rhythmic effects
     # (hits/buildup) should reference A's BPM to land on the beat.
     bpm = int(round(a.bpm)) if getattr(a, "bpm", 0) else int(round(getattr(b, "bpm", 120.0)))
     key = (getattr(b, "key", {}) or {}).get("name") or (getattr(a, "key", {}) or {}).get("name")
     key_str = f" in {key}" if key and key != "unknown" else ""
+    # Convey the detected genre as the style cue — since the audio conditioning is kept
+    # loose (eval_q=1), the text must carry the style. (Forceable via --genre.)
+    gen = (getattr(a, "genre", {}) or {}).get("label") or (getattr(b, "genre", {}) or {}).get("label")
+    genre_str = f"{gen} " if gen and gen != "unknown" else ""
     effect = template.format(bpm=bpm, key=key_str, dur=f"{overlap_sec:.0f}")
+    if melodic:
+        # Melodic bridge: ALLOW a tonal phrase, in the genre's style. Strictly
+        # instrumental — no vocals (MusicGen will sing otherwise).
+        return (
+            f"A short {genre_str}melodic riff to bridge a DJ transition: {effect}, played "
+            f"on a lead instrument in the style of {genre_str or 'the'} music, "
+            f"purely instrumental, no vocals, no singing, no voice, no drums."
+        )
     # Frame it as an ISOLATED overlay FX layered ON TOP of the transition — dry, no
     # music bed / vocals / song (so it doesn't reproduce or blend the tracks) — but
     # allow percussion/hits so buildups and impacts come through.
     return (
-        f"Big punchy isolated DJ transition effect, dry and clean, no music bed, "
-        f"no vocals, no song, no melody — just the effect to layer on top of a "
-        f"mix: {effect}"
+        f"Big punchy isolated {genre_str}DJ transition effect, dry and clean, no music "
+        f"bed, purely instrumental, no vocals, no singing, no voice, no song, no melody — "
+        f"just the effect to layer on top of a mix: {effect}"
     )
 
 
@@ -225,6 +295,35 @@ def _riser(n: int, sr: int, rng: np.random.Generator) -> np.ndarray:
     sweep = np.sin(phase).astype(np.float32) * amp * 0.5
 
     return (0.7 * noise_layer + 0.3 * sweep).astype(np.float32)
+
+
+def _riff(n: int, sr: int, bpm: float, rng: np.random.Generator) -> np.ndarray:
+    """A short melodic run: an arpeggiated pluck stepping up then down a scale.
+
+    The procedural fallback for the ``riff`` element (the real one is MusicGen,
+    conditioned on the songs). Key-agnostic (a major-pentatonic shape over a fixed
+    root) so it sounds musical without key detection; rhythmic at ``bpm`` (8th notes).
+    """
+    y = np.zeros(n, dtype=np.float32)
+    note_dur = (60.0 / max(bpm, 1.0)) / 2.0  # eighth notes
+    nlen = max(int(note_dur * sr), 1)
+    # Major-pentatonic degrees up then down (semitones from the root).
+    semis = [0, 2, 4, 7, 9, 12, 9, 7, 4, 2]
+    root = 261.6  # ~C4
+    tt = np.arange(nlen) / sr
+    env = np.exp(-np.linspace(0.0, 4.0, nlen)).astype(np.float32)  # plucky decay
+    pos = 0
+    i = 0
+    while pos < n:
+        f = root * 2.0 ** (semis[i % len(semis)] / 12.0)
+        # A few harmonics -> a simple saw-ish lead tone.
+        note = sum((1.0 / h) * np.sin(2.0 * np.pi * f * h * tt) for h in (1, 2, 3))
+        note = (note.astype(np.float32) * env)
+        end = min(pos + nlen, n)
+        y[pos:end] += note[: end - pos]
+        pos += nlen
+        i += 1
+    return y
 
 
 def _drum_fill(n: int, sr: int, bpm: float, rng: np.random.Generator) -> np.ndarray:

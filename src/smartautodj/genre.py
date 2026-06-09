@@ -75,6 +75,11 @@ class BridgeSpec:
     element: str
     prompt: str
     proc_kind: str
+    # Most elements are abstract FX (riser/sweep/hits) framed as "no melody". A
+    # ``melodic`` element instead asks for an actual tonal phrase (a riff/run) in the
+    # tracks' key/timbre — build_bridge_prompt uses a different, melody-allowing
+    # wrapper and the pipeline conditions it harder on the songs (higher eval_q).
+    melodic: bool = False
 
 
 # element -> spec. Prompts describe a *sensible transition effect* in the genre's
@@ -84,8 +89,10 @@ class BridgeSpec:
 BRIDGE_SPECS: dict[str, BridgeSpec] = {
     "riser": BridgeSpec(
         "riser",
-        "{bpm} BPM rising filtered-noise uplifter sweeping up into the drop, "
-        "building tension, about {dur} seconds",
+        "{bpm} BPM continuous uplifting riser that starts low and dark and sweeps "
+        "steadily upward the whole time, filter opening up and pitch rising, a "
+        "white-noise swell building to a peak at the very end — no drums, no beat, "
+        "no rhythm, no melody, about {dur} seconds",
         "riser",
     ),
     "buildup": BridgeSpec(
@@ -96,8 +103,9 @@ BRIDGE_SPECS: dict[str, BridgeSpec] = {
     ),
     "hits": BridgeSpec(
         "hits",
-        "{bpm} BPM a few big hard-hitting impact booms on the beat leading into the "
-        "drop, punchy and powerful, about {dur} seconds",
+        "{bpm} BPM modern hip-hop transition fill — a snare and hi-hat roll with a few "
+        "hard 808 / impact hits building into the drop, trap-style, punchy and clean, "
+        "about {dur} seconds",
         "drum_fill",
     ),
     "impact": BridgeSpec(
@@ -121,6 +129,16 @@ BRIDGE_SPECS: dict[str, BridgeSpec] = {
         "an ambient swell and long reverb wash{key}, slow evolving, about {dur} seconds",
         "pad",
     ),
+    # Melodic option (not abstract FX): a short tonal riff/run that bridges A->B in
+    # the tracks' key + instruments. Conditioned harder on the songs (higher eval_q)
+    # so it borrows their timbre; NOT riserized (it's a melody, not a sweep).
+    "riff": BridgeSpec(
+        "riff",
+        "a catchy melodic riff, a short {dur}-second instrumental run{key} at {bpm} BPM, "
+        "lead synth/keys playing an ascending then descending phrase",
+        "riff",
+        melodic=True,
+    ),
 }
 
 
@@ -138,6 +156,9 @@ class StylePreset:
     * ``bridge_element`` -> which :data:`BRIDGE_SPECS` element the tier-3 layer uses
     * ``bridge_auto`` -> add that element by default at tier 3 (True), or only when
       the user explicitly opts in via ``--generate`` / an existing clip (False)
+    * ``shape`` -> how the overlap renders: ``"blend"`` (symmetric crossfade, the
+      default for every existing preset) or ``"cut"`` (sequential quick-cut: fade
+      A out, effect over the seam, drop B in). See ``mix.mix_transition``.
     """
 
     bars: int
@@ -146,6 +167,7 @@ class StylePreset:
     cue_method: str
     bridge_element: str
     bridge_auto: bool
+    shape: str = "blend"
 
 
 # Numbers are starting points to tune by ear. ``default`` reproduces today's
@@ -170,6 +192,12 @@ STYLE_PRESETS: dict[str, StylePreset] = {
     "ambient": StylePreset(16, 0.0, False, "match", "pad", True),
     # today's default behaviour (also the unknown-genre fallback).
     "default": StylePreset(8, 0.10, True, "match", "riser", True),
+    # quick-cut (manual-only): fade A out fast, lay a riserized riser over the ~7-bar
+    # seam, a swept-resonant-noise "swoosh" rises into the drop, and B crossfades in
+    # over the last ~2 bars (on a downbeat) so the hand-off is smooth. beat-matched so the drop lands on
+    # grid; bass-swap EQ off (the cut handles the low end). shape="cut" -> mix renders
+    # the sequential path (mix._mix_cut). Not in STYLE_FAMILIES: only via `--style cut`.
+    "cut": StylePreset(7, 0.10, False, "match", "riser", True, shape="cut"),
 }
 
 
@@ -185,6 +213,11 @@ def select_effect(
     default effect.
     """
     base = preset.bridge_element
+    # The quick-cut always uses its riser (riserized EQ filter-sweep that resolves on
+    # the drop) — don't let the buildup/hits overrides below swap it out. `--effect`
+    # still wins upstream.
+    if style_name == "cut":
+        return base
     if energy_a is not None and energy_b is not None and (energy_b - energy_a) > 0.12:
         return "buildup"  # B drops in noticeably louder -> build into it
     tempo_matched = (

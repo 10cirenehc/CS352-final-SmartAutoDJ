@@ -130,6 +130,7 @@ def select_transition_region(
     cue_a: float | None = None,
     cue_b: float | None = None,
     fade_sharpness: float = 1.0,
+    shape: str = "blend",
 ) -> TransitionPlan:
     """Plan a structure-aware, beat-aligned transition from A into B.
 
@@ -209,6 +210,7 @@ def select_transition_region(
         anchor_downbeats_a=anchors_a,
         anchor_downbeats_b=anchors_b,
         stretch_ratio=rate,
+        shape=shape,
         fade_shape="equal_power",
         fade_sharpness=fade_sharpness,
         eq_params={"kind": "bass_swap", "cutoff_hz": 200.0, "order": 4},
