@@ -38,6 +38,31 @@ def make_click_track(bpm: float, duration: float = 12.0, sr: int = SR, seed: int
     return (y / peak * 0.9).astype(np.float32)
 
 
+def make_intro_then_drop(
+    bpm: float = 120.0, intro_sec: float = 6.0, body_sec: float = 14.0,
+    sr: int = SR, seed: int = 3,
+) -> np.ndarray:
+    """A click track with a *quiet intro* then a full-energy body.
+
+    The first ``intro_sec`` are scaled down to ~15% level (a sparse intro); the
+    rest is full level. Used to test that cue selection skips the intro and
+    drops into the energetic body.
+    """
+    full = make_click_track(bpm, duration=intro_sec + body_sec, sr=sr, seed=seed)
+    cut = int(intro_sec * sr)
+    full[:cut] *= 0.15
+    return full.astype(np.float32)
+
+
+@pytest.fixture
+def intro_drop_track(tmp_path):
+    """Write a quiet-intro/loud-body track; return (path, sr, intro_sec)."""
+    path = tmp_path / "intro_drop.wav"
+    intro_sec = 6.0
+    sf.write(path, make_intro_then_drop(120.0, intro_sec=intro_sec), SR)
+    return str(path), SR, intro_sec
+
+
 @pytest.fixture
 def click_tracks(tmp_path):
     """Write two click tracks (120 and 124 BPM) to disk; return their paths.

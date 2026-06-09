@@ -46,6 +46,23 @@ def tempo_match_quality(bpm_a: float, bpm_b: float, stretch_ratio: float) -> dic
     }
 
 
+def short_term_loudness_db(
+    y: np.ndarray, sr: int, window_sec: float = 1.0, hop_sec: float = 0.25
+) -> tuple[np.ndarray, int]:
+    """Short-term (~1 s, EBU R128-style) loudness curve in dB and its hop (samples).
+
+    Shared by :func:`loudness_continuity` (which measures the largest step) and
+    the loudness-continuity *plot* (``viz.plot_loudness_curve``), so the metric
+    and the visual are computed identically and never drift.
+    """
+    y = np.asarray(y, dtype=np.float32)
+    win = max(int(sr * window_sec), 1)
+    hop = max(int(sr * hop_sec), 1)
+    rms = librosa.feature.rms(y=y, frame_length=win, hop_length=hop)[0]
+    db = librosa.amplitude_to_db(rms + 1e-8, ref=1.0)
+    return db, hop
+
+
 def loudness_continuity(
     y: np.ndarray, info: dict, sr: int, window_sec: float = 1.0, hop_sec: float = 0.25
 ) -> dict:
@@ -60,11 +77,7 @@ def loudness_continuity(
     Reports the max absolute step between consecutive (hop ~0.25 s) frames inside
     the overlap, plus the level standard deviation over the overlap.
     """
-    y = np.asarray(y, dtype=np.float32)
-    win = max(int(sr * window_sec), 1)
-    hop = max(int(sr * hop_sec), 1)
-    rms = librosa.feature.rms(y=y, frame_length=win, hop_length=hop)[0]
-    db = librosa.amplitude_to_db(rms + 1e-8, ref=1.0)
+    db, hop = short_term_loudness_db(y, sr, window_sec, hop_sec)
 
     start_f = max(info["overlap_start_sample"] // hop, 0)
     end_f = min(

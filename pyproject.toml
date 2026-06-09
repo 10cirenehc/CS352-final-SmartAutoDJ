@@ -13,11 +13,22 @@ dependencies = [
     "scipy",
     "matplotlib",
     "soundfile",
+    # High-quality, transient-aware time-stretch (DJ-grade). Wraps the RubberBand
+    # CLI -> also needs the binary: `brew install rubberband`. Falls back to
+    # librosa's phase vocoder if the binary is missing.
+    "pyrubberband",
 ]
 
 [project.optional-dependencies]
-# Optional analysis upgrade (install per CLAUDE.md; carries install risk).
-allin1 = ["allin1"]
+# Optional analysis upgrades (install per CLAUDE.md; carry install risk).
+allin1 = ["allin1"]           # local-only; fragile NATTEN/madmom matrix, broken in Colab
+beat_this = []                # install from zip per CLAUDE.md; Colab/CPU-friendly downbeats
+# Pretrained genre classifier -> genre-driven transition style. CPU-friendly
+# distilHuBERT/GTZAN on the existing torch stack (torch comes in via beat_this).
+genre = ["transformers", "torch", "torchaudio"]
+# Remote tier-3 generation on Modal (CUDA musicgen-style). Local side is just the
+# lightweight client; audiocraft/torch-2.1 live ONLY in the Modal image (infra/).
+gen = ["modal"]
 dev = ["pytest"]
 
 [project.scripts]
