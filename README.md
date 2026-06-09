@@ -203,3 +203,77 @@ pytest -q
 
 The tests synthesize click tracks at known tempos, so `analyze → align → mix` is tested
 deterministically without shipping any copyrighted audio.
+
+## References & credits
+
+The methods are explained on the
+[project site](https://10cirenehc.github.io/CS352-final-SmartAutoDJ/); this is the source
+material behind the models, tools, and techniques the pipeline uses.
+
+**Models we run**
+
+- **beat_this** — neural beat/downbeat tracker (default backend). Foscarin, Schlüter,
+  Widmer, *Beat This! Accurate Beat Tracking Without DBN Postprocessing*, ISMIR 2024 —
+  [paper](https://arxiv.org/abs/2407.21658) · [code](https://github.com/CPJKU/beat_this)
+- **all-in-one** (`allin1`) — beats/downbeats + functional structure (optional backend).
+  Kim & Nam, *All-In-One Metrical And Functional Structure Analysis With Neighborhood
+  Attentions on Demixed Audio*, WASPAA 2023 — [paper](https://arxiv.org/abs/2307.16425) ·
+  [code](https://github.com/mir-aidj/all-in-one); builds on **madmom** (Böck et al., ACM
+  MM 2016 — [code](https://github.com/CPJKU/madmom))
+- **distilHuBERT** — genre-classifier backbone, checkpoint
+  [`sanchit-gandhi/distilhubert-finetuned-gtzan`](https://huggingface.co/sanchit-gandhi/distilhubert-finetuned-gtzan).
+  Chang, Yang, Lee, *DistilHuBERT*, ICASSP 2022
+  ([paper](https://arxiv.org/abs/2110.01900)); distilled from **HuBERT** (Hsu et al., 2021
+  — [paper](https://arxiv.org/abs/2106.07447))
+- **MusicGen / MusicGen-Style** — AI bridge generation. Copet et al., *Simple and
+  Controllable Music Generation*, NeurIPS 2023 ([paper](https://arxiv.org/abs/2306.05284));
+  audio conditioning via Rouard et al., *Audio Conditioning for Music Generation via
+  Discrete Bottleneck Features*, ISMIR 2024 ([paper](https://arxiv.org/abs/2407.12563)) —
+  [audiocraft](https://github.com/facebookresearch/audiocraft) ·
+  [model](https://huggingface.co/facebook/musicgen-style). Alternative text-to-audio:
+  **Stable Audio Open** (Evans et al. 2024 — [paper](https://arxiv.org/abs/2407.14358))
+
+**Core libraries & tools**
+
+- [librosa](https://librosa.org/) (McFee et al., SciPy 2015) — audio analysis & features
+- [NumPy](https://numpy.org/) · [SciPy](https://scipy.org/) · [Matplotlib](https://matplotlib.org/)
+  — numerics, DSP filters, plotting
+- [PySoundFile](https://python-soundfile.readthedocs.io/) / libsndfile ·
+  [FFmpeg](https://ffmpeg.org/) — audio I/O & decoding
+- [pyrubberband](https://github.com/bmcfee/pyrubberband) +
+  [Rubber Band Library](https://breakfastquay.com/rubberband/) — transient-aware time-stretch
+- [Hugging Face Transformers](https://github.com/huggingface/transformers) — runs the genre classifier
+- [Modal](https://modal.com/) — serverless CUDA for bridge generation
+- [WaveSurfer.js](https://wavesurfer.xyz/) — interactive waveform player ·
+  [GitHub Pages](https://pages.github.com/) — site hosting
+
+**Datasets**
+
+- **GTZAN** — genre-classifier training set. Tzanetakis & Cook, *Musical Genre
+  Classification of Audio Signals*, IEEE TSAP 2002 —
+  [doi](https://doi.org/10.1109/TSA.2002.800560)
+- Audio clips: [Free Music Archive](https://freemusicarchive.org/) and the
+  [YouTube Audio Library](https://www.youtube.com/audiolibrary) (royalty-free) + personal picks
+
+**Algorithms & methods**
+
+- **Krumhansl–Schmuckler** key-finding (key estimation) — Krumhansl, *Cognitive
+  Foundations of Musical Pitch*, Oxford University Press, 1990
+- **Camelot wheel** harmonic mixing (key compatibility) —
+  [Mixed In Key](https://mixedinkey.com/camelot-wheel/)
+- **TPT / Zavalishin state-variable filter** (the swept swoosh) — Zavalishin, *The Art of
+  VA Filter Design* —
+  [pdf](https://archive.org/details/the-art-of-va-filter-design-rev.-2.1.2)
+- **Self-similarity matrices** (structure visualization) — Foote, *Visualizing Music and
+  Audio using Self-Similarity*, ACM Multimedia 1999
+
+**Related work**
+
+- Chen, Hsu, Liao, Martínez Ramírez, Mitsufuji, Yang, *Automatic DJ Transitions with
+  Differentiable Audio Effects and GANs*, 2021 — closest prior work
+  ([paper](https://arxiv.org/abs/2110.06525))
+- Zehren, Alunno, Bientinesi, *Automatic Detection of Cue Points for the Emulation of DJ
+  Mixing*, Computer Music Journal 2022 ([doi](https://doi.org/10.1162/comj_a_00652))
+- Heydari, Cwitkowitz, Duan, *BeatNet: CRNN and Particle Filtering for Online
+  Joint Beat, Downbeat and Meter Tracking*, ISMIR 2021
+  ([paper](https://arxiv.org/abs/2108.03576))
